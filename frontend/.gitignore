@@ -1,0 +1,17 @@
+# dependencies
+/node_modules
+
+# next.js build output
+/.next
+/out
+*.tsbuildinfo
+
+# artifacts
+/shots
+
+# misc
+*.log
+.DS_Store
+
+# env (secret không vào Git)
+.env*.local

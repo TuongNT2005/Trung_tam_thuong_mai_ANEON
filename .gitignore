@@ -1,0 +1,16 @@
+target/
+!.mvn/wrapper/maven-wrapper.properties
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+.mvn/wrapper/maven-wrapper.jar
+dependency-reduced-pom.xml
+node_modules/
+.next/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+scripts/rebuild_git_history.js
