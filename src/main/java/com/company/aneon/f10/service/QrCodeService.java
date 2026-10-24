@@ -31,6 +31,22 @@ public interface QrCodeService {
      * Phiên bản: Version 1
      */
     Optional<EventDtos.QrCodeDto> getActiveQr(UUID eventId);
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ status
+     * Phiên bản: Version 1
+     */
+
+    EventDtos.CheckInContext status(UUID eventId);
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ preview
+     * Phiên bản: Version 1
+     */
+
+    EventDtos.CheckInContext preview(UUID eventId, String qrToken);
 
     /**
      * Người code: Bảo

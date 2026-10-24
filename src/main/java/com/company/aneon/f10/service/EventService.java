@@ -65,6 +65,14 @@ public interface EventService {
      * Phiên bản: Version 1
      */
     EventDtos.EventDetail approve(UUID eventId, EventDtos.ApproveEventRequest request);
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ publish
+     * Phiên bản: Version 1
+     */
+
+    EventDtos.EventDetail publish(UUID eventId, long version);
 
     /**
      * Người code: Bảo

@@ -35,7 +35,6 @@ import com.company.aneon.shared.security.AccessScopePort;
 import com.company.aneon.shared.security.RolePermissions;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -46,6 +45,8 @@ import org.springframework.transaction.annotation.Transactional;
  * F10UC01.3 + check-in bo tro. BR_SUTI_04: mot QR hieu luc moi su kien
  * (unique V2), check-in chi trong thoi gian su kien; token chi luu hash
  * (D0007).
+ * Người phụ trách code: Bảo | Ngày cập nhật local: 2026-11-17 | Phiên bản: v1.1.
+ * Chức năng: phát QR và ghi nhận check-in an toàn theo sự kiện.
  */
 @Service
 public class QrCodeServiceImpl implements QrCodeService {
@@ -137,12 +138,82 @@ public class QrCodeServiceImpl implements QrCodeService {
     @Override
     @Transactional(readOnly = true)
     public Optional<EventDtos.QrCodeDto> getActiveQr(UUID eventId) {
-        SuKien event = suKienRepository.findById(eventId)
-                .filter(e -> e.getArchivedAt() == null)
-                .orElseThrow(() -> ApiException.notFound("Su kien", eventId));
+        SuKien event = findEvent(eventId);
         EventAccess.requireInScope(event, accessScopePort);
         return qrRepository.findFirstByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId)
+                .filter(qr -> qr.getExpiresAt() == null || clock.instant().isBefore(qr.getExpiresAt()))
                 .map(this::toDto);
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ status
+     * Phiên bản: Version 1
+     */
+
+    @Override
+    @Transactional(readOnly = true)
+    public EventDtos.CheckInContext status(UUID eventId) {
+        SuKien event = findEvent(eventId);
+        EventAccess.requireInScope(event, accessScopePort);
+        Instant now = clock.instant();
+        var qr = qrRepository.findFirstByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId);
+        return context(event, qr.orElse(null), now);
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ preview
+     * Phiên bản: Version 1
+     */
+
+    @Override
+    @Transactional(readOnly = true)
+    public EventDtos.CheckInContext preview(UUID eventId, String qrToken) {
+        Instant now = clock.instant();
+        MaQrThamGia qr = requireQrToken(eventId, qrToken);
+        return context(findEvent(eventId), qr, now);
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ context
+     * Phiên bản: Version 1
+     */
+
+    private EventDtos.CheckInContext context(SuKien event, MaQrThamGia qr, Instant now) {
+        String state;
+        if (event.getEndAt() == null || !now.isBefore(event.getEndAt())) state = "ENDED";
+        else if (event.getStatus() != EventStatus.APPROVED && event.getStatus() != EventStatus.ONGOING) state = "INACTIVE";
+        else if (qr == null) state = "NO_QR";
+        else if (qr.getExpiresAt() != null && !now.isBefore(qr.getExpiresAt())) state = "EXPIRED";
+        else if (event.getStartAt() != null && now.isBefore(event.getStartAt())) state = "UPCOMING";
+        else state = "READY";
+        return new EventDtos.CheckInContext(event.getName(), event.getStartAt(), event.getEndAt(), state,
+                event.getLocation() == null ? null : event.getLocation().getTextDescription());
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Truy vấn thông tin event theo tiêu chí nghiệp vụ
+     * Phiên bản: Version 1
+     */
+
+    private SuKien findEvent(UUID id) {
+        return suKienRepository.findById(id).filter(event -> event.getArchivedAt() == null)
+                .orElseThrow(() -> ApiException.notFound("Sự kiện", id));
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ require qr token
+     * Phiên bản: Version 1
+     */
+
+    private MaQrThamGia requireQrToken(UUID eventId, String token) {
+        return qrRepository.findByTokenHashAndActiveTrue(sha256Hex(token.trim()))
+                .filter(qr -> eventId.equals(qr.getEvent().getId()))
+                .orElseThrow(() -> ApiException.conflict("Mã QR không hợp lệ hoặc đã được thay thế."));
     }
     /**
      * Người code: Bảo
@@ -154,9 +225,7 @@ public class QrCodeServiceImpl implements QrCodeService {
     @Override
     @Transactional
     public EventDtos.CheckInResult checkIn(UUID eventId, EventDtos.CheckInRequest request) {
-        SuKien event = suKienRepository.findById(eventId)
-                .filter(e -> e.getArchivedAt() == null)
-                .orElseThrow(() -> ApiException.notFound("Su kien", eventId));
+        SuKien event = findEvent(eventId);
         UUID actorId = requireActor();
         UUID customerId = resolveCustomerId(request.customerId(), actorId, event);
         if (!customerLookupPort.customerExists(customerId)) {
@@ -165,29 +234,24 @@ public class QrCodeServiceImpl implements QrCodeService {
 
         Instant now = Instant.now(clock);
         if (event.getStatus() != EventStatus.APPROVED && event.getStatus() != EventStatus.ONGOING) {
-            throw ApiException.conflict("Su kien khong dang nhan check-in (trang thai " + event.getStatus() + ")");
+            throw ApiException.conflict("Sự kiện chưa mở check-in.");
         }
         if (event.getStartAt() != null && now.isBefore(event.getStartAt())
                 || event.getEndAt() == null || !now.isBefore(event.getEndAt())) {
-            throw ApiException.conflict("Check-in chi trong thoi gian su kien");
+            throw ApiException.conflict("Chỉ có thể check-in trong khung giờ diễn ra sự kiện.");
         }
 
         MaQrThamGia qr;
         String rawToken = request.qrToken() == null ? "" : request.qrToken().trim();
         if (!rawToken.isEmpty() && !rawToken.equalsIgnoreCase("AUTO")) {
-            qr = qrRepository.findByTokenHashAndActiveTrue(sha256Hex(rawToken))
-                    .orElseThrow(() -> new ApiException(ErrorCode.BUSINESS_CONFLICT,
-                            "QR khong hop le hoac da bi thu hoi"));
+            qr = requireQrToken(eventId, rawToken);
         } else {
+            requirePermission(RolePermissions.F10_CHECKIN_ASSIST);
             qr = qrRepository.findFirstByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId)
-                    .orElseThrow(() -> new ApiException(ErrorCode.BUSINESS_CONFLICT,
-                            "Su kien chua co ma QR check-in hoat dong"));
-        }
-        if (!eventId.equals(qr.getEvent().getId())) {
-            throw new ApiException(ErrorCode.BUSINESS_CONFLICT, "QR khong thuoc su kien nay");
+                    .orElseThrow(() -> ApiException.conflict("Sự kiện chưa có mã QR hoạt động."));
         }
         if (qr.getExpiresAt() != null && !now.isBefore(qr.getExpiresAt())) {
-            throw new ApiException(ErrorCode.BUSINESS_CONFLICT, "QR da het han");
+            throw ApiException.conflict("Mã QR đã hết hạn.");
         }
 
         // Replay (quet lai): tra lai luot da co, khong ghi them khong thuong lap.
