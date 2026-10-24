@@ -146,6 +146,22 @@ public final class EventDtos {
     /**
      * Người code: Tường
      * Ngày code: 22/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ check in preview request
+     * Phiên bản: Version 1
+     */
+
+    public record CheckInPreviewRequest(@NotBlank @Size(max = 200) String qrToken) {}
+    /**
+     * Người code: Tường
+     * Ngày code: 22/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ check in context
+     * Phiên bản: Version 1
+     */
+
+    public record CheckInContext(String name, Instant startAt, Instant endAt, String state, String location) {}
+    /**
+     * Người code: Tường
+     * Ngày code: 22/10/2026
      * Chức năng: Thực hiện xử lý nghiệp vụ event summary
      * Phiên bản: Version 1
      */

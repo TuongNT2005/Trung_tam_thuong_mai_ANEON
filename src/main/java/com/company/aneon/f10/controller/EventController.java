@@ -16,6 +16,8 @@ import com.company.aneon.f10.constant.EventStatus;
 import com.company.aneon.f10.dto.EventDtos;
 import com.company.aneon.f10.service.EventService;
 import com.company.aneon.f10.service.QrCodeService;
+import com.company.aneon.shared.error.ApiException;
+import com.company.aneon.shared.reference.CustomerDirectory;
 import com.company.aneon.shared.security.RolePermissions;
 import com.company.aneon.shared.web.ApiResponse;
 import com.company.aneon.shared.web.PageParams;
@@ -46,6 +48,7 @@ public class EventController {
     private final EventService eventService;
     private final QrCodeService qrCodeService;
     private final com.company.aneon.f10.service.EventReportService eventReportService;
+    private final CustomerDirectory customers;
     /**
      * Người code: Bảo
      * Ngày code: 24/10/2026
@@ -54,10 +57,11 @@ public class EventController {
      */
 
     public EventController(EventService eventService, QrCodeService qrCodeService,
-                           com.company.aneon.f10.service.EventReportService eventReportService) {
+                           com.company.aneon.f10.service.EventReportService eventReportService, CustomerDirectory customers) {
         this.eventService = eventService;
         this.qrCodeService = qrCodeService;
         this.eventReportService = eventReportService;
+        this.customers = customers;
     }
     /**
      * Người code: Bảo
@@ -129,6 +133,18 @@ public class EventController {
     /**
      * Người code: Bảo
      * Ngày code: 24/10/2026
+     * Chức năng: Tiếp nhận yêu cầu HTTP PUT: thực hiện xử lý nghiệp vụ publish
+     * Phiên bản: Version 1
+     */
+
+    @PutMapping("/{id}/publication")
+    @PreAuthorize("hasAuthority('" + RolePermissions.F10_EVENT_PROPOSE + "')")
+    public ApiResponse<EventDtos.EventDetail> publish(@PathVariable UUID id, @RequestParam long version) {
+        return ApiResponse.ok("Đã công bố sự kiện", eventService.publish(id, version));
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
      * Chức năng: Tiếp nhận yêu cầu HTTP POST: khởi tạo và lưu mới activities vào cơ sở dữ liệu
      * Phiên bản: Version 1
      */
@@ -190,6 +206,34 @@ public class EventController {
     @PreAuthorize("hasAuthority('" + RolePermissions.F10_EVENT_READ + "') or hasAuthority('" + RolePermissions.F10_CHECKIN_ASSIST + "') or hasAuthority('" + RolePermissions.F10_EVENT_QR + "')")
     public ApiResponse<EventDtos.QrCodeDto> getActiveQr(@PathVariable UUID id) {
         return ApiResponse.ok("Lay ma QR check-in thanh cong", qrCodeService.getActiveQr(id).orElse(null));
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Tiếp nhận yêu cầu HTTP GET: kiểm tra tính hợp lệ và điều kiện ràng buộc của in status
+     * Phiên bản: Version 1
+     */
+
+    @GetMapping("/{id}/check-in-status")
+    @PreAuthorize("hasAuthority('" + RolePermissions.F10_CHECKIN_ASSIST + "')")
+    public ApiResponse<EventDtos.CheckInContext> checkInStatus(@PathVariable UUID id) {
+        return ApiResponse.ok("Trạng thái check-in", qrCodeService.status(id));
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Tiếp nhận yêu cầu HTTP POST: truy vấn thông tin check in customer theo tiêu chí nghiệp vụ
+     * Phiên bản: Version 1
+     */
+
+    @PostMapping("/{id}/check-in-customers")
+    @PreAuthorize("hasAuthority('" + RolePermissions.F10_CHECKIN_ASSIST + "')")
+    public ApiResponse<CustomerDirectory.Results> findCheckInCustomer(@PathVariable UUID id,
+            @Valid @RequestBody CustomerDirectory.Search search) {
+        if (!"READY".equals(qrCodeService.status(id).state())) {
+            throw ApiException.conflict("Sự kiện chưa nhận check-in. Hãy kiểm tra lại trạng thái sự kiện.");
+        }
+        return ApiResponse.ok("Kết quả tìm khách", customers.search(search));
     }
     /**
      * Người code: Bảo
