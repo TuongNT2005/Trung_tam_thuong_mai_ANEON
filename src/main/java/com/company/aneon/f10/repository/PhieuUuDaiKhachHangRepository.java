@@ -17,6 +17,7 @@ import com.company.aneon.f10.constant.VoucherIssueStatus;
 import com.company.aneon.f10.entity.PhieuUuDaiKhachHang;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -58,4 +59,13 @@ public interface PhieuUuDaiKhachHangRepository extends JpaRepository<PhieuUuDaiK
      */
 
     List<PhieuUuDaiKhachHang> findByCustomerIdAndStatus(UUID customerId, VoucherIssueStatus status);
+    /**
+     * Người code: Tường
+     * Ngày code: 22/10/2026
+     * Chức năng: Truy vấn chi tiết by customer id and archived at is null order by issued at desc theo mã định danh hoặc khóa chính
+     * Phiên bản: Version 1
+     */
+
+    @EntityGraph(attributePaths = "voucher")
+    List<PhieuUuDaiKhachHang> findByCustomerIdAndArchivedAtIsNullOrderByIssuedAtDesc(UUID customerId);
 }

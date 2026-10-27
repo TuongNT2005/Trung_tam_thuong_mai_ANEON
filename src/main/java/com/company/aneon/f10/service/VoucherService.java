@@ -9,6 +9,7 @@ package com.company.aneon.f10.service;
  * Phiên bản: Version 1
  * ==============================================================================
  */
+import java.util.List;
 import java.util.UUID;
 
 import com.company.aneon.f10.dto.PromotionDtos;
@@ -38,4 +39,12 @@ public interface VoucherService {
      * Phiên bản: Version 1
      */
     PromotionDtos.RedeemResult redeem(UUID instanceId, PromotionDtos.RedeemVoucherRequest request);
+    /**
+     * Người code: Tùng
+     * Ngày code: 27/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ wallet
+     * Phiên bản: Version 1
+     */
+
+    List<PromotionDtos.WalletVoucher> wallet();
 }
