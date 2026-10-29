@@ -86,6 +86,8 @@ export function Discovery({ initialCategory = "", preview = false }: { initialCa
                   <dt className="text-ink-soft">Kết thúc</dt><dd>{formatDate(item.endAt)}</dd>
                   {item.location && <><dt className="text-ink-soft">Địa điểm</dt><dd className="wrap-break-word">{item.location}</dd></>}
                 </dl>
+                {item.category === "EVENT" && <Link className="mt-4 inline-block text-sm font-semibold text-magenta-deep underline"
+                  href={`/kham-pha/su-kien/${item.id}`}>Xem lịch và địa điểm</Link>}
                 {item.terms && !preview && <details className="mt-4 border-t border-cream-line pt-4 text-sm">
                   <summary className="cursor-pointer font-semibold text-plum">Điều kiện áp dụng</summary>
                   <p className="mt-2 whitespace-pre-wrap wrap-break-word">{item.terms}</p>
