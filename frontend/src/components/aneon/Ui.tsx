@@ -22,6 +22,7 @@ export function TopBar() {
         <nav aria-label="Điều hướng" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-semibold">
           <Link href="/kham-pha" className="hover:text-magenta-deep">Sự kiện & ưu đãi</Link>
           <Link href="/check-in" className="hover:text-magenta-deep">Check-in</Link>
+          <Link href="/voucher-cua-toi" className="hover:text-magenta-deep">Voucher của tôi</Link>
           <Link href="/quan-ly" className="hover:text-magenta-deep">Quản lý</Link>
         </nav>
       </div>

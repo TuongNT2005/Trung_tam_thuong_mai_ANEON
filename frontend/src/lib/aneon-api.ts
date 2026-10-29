@@ -8,7 +8,26 @@
  */
 export type Identity =
   | { mode: "jwt"; token: string }
-  | { mode: "local"; actorId: string; role: string; zones: string };
+  | { mode: "local"; actorId: string; role: string; zones: string; label?: string };
+
+export type CheckInContext = {
+  name: string;
+  location?: string;
+  startAt?: string;
+  endAt?: string;
+  state: "READY" | "UPCOMING" | "ENDED" | "INACTIVE" | "NO_QR" | "EXPIRED";
+};
+
+export type PublicStore = {
+  code: string;
+  name: string;
+  category?: string;
+  floor: string;
+  zone: string;
+  location?: string;
+  operatingHours?: string;
+  description?: string;
+};
 
 export type Page<T> = { content: T[]; page: number; size: number; totalElements: number };
 export type OptionItem = { id: string; label: string; zoneId?: string };
@@ -154,4 +173,21 @@ const dateFormat = new Intl.DateTimeFormat("vi-VN", {
  */
 export function formatDate(value?: string) {
   return value ? dateFormat.format(new Date(value)) : "—";
+}
+
+/**
+ * Người code: Tường
+ * Ngày code: 22/10/2026
+ * Chức năng: Hàm xử lý nghiệp vụ check in status text
+ * Phiên bản: Version 1
+ */
+export function checkInStatusText(context: CheckInContext) {
+  switch (context.state) {
+    case "UPCOMING": return `Check-in mở lúc ${formatDate(context.startAt)}.`;
+    case "ENDED": return "Sự kiện đã kết thúc.";
+    case "INACTIVE": return "Sự kiện chưa mở check-in.";
+    case "NO_QR": return "Chưa có mã QR. Liên hệ Marketing để chuẩn bị mã check-in.";
+    case "EXPIRED": return "Mã QR đã hết hạn. Vui lòng liên hệ quầy hỗ trợ.";
+    case "READY": return `Đang nhận check-in đến ${formatDate(context.endAt)}.`;
+  }
 }

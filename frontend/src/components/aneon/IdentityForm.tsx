@@ -10,8 +10,8 @@
  * ==============================================================================
  */
 import { useEffect, useState, type FormEvent } from "react";
-import { localIdentityEnabled, UUID_PATTERN, type Identity } from "@/lib/aneon-api";
-import { Field, input, primary } from "./Ui";
+import { localIdentityEnabled, request, UUID_PATTERN, type Identity } from "@/lib/aneon-api";
+import { ErrorMessage, Field, input, primary, secondary } from "./Ui";
 
 export const staffRoles = {
   MANAGEMENT: "Ban quản lý", OPERATIONS: "Vận hành", DIRECTOR: "Giám đốc",
@@ -19,15 +19,46 @@ export const staffRoles = {
 };
 
 type PresetAccount = { id: string; label: string; role: string };
+const customerSessionKey = "aneon-local-customer";
 
-const defaultPresets: PresetAccount[] = [
-  { id: "11111111-1111-1111-1111-111111111111", label: "Ban quản lý demo (aneon-demo-management)", role: "MANAGEMENT" },
-  { id: "22222222-2222-2222-2222-222222222222", label: "Marketing demo (aneon-demo-marketing)", role: "MARKETING" },
-  { id: "00000000-0000-0000-0000-000000000001", label: "Ban Giám Đốc (giamdoc)", role: "DIRECTOR" },
-  { id: "00000000-0000-0000-0000-000000000004", label: "Ban Vận Hành (vanhanh)", role: "OPERATIONS" },
-  { id: "00000000-0000-0000-0000-000000000002", label: "Ban Quản Lý Mặt Bằng (quanly)", role: "MANAGEMENT" },
-  { id: "33333333-3333-3333-3333-333333333333", label: "Khách demo (aneon-demo-customer)", role: "CUSTOMER" },
-];
+/**
+ * Người code: Kiên
+ * Ngày code: 31/10/2026
+ * Chức năng: Hook tùy chỉnh quản lý logic và trạng thái customer identity
+ * Phiên bản: Version 1
+ */
+export function useCustomerIdentity() {
+  const [identity, setIdentity] = useState<Identity>();
+  const [restored, setRestored] = useState(false);
+
+  useEffect(() => {
+    if (localIdentityEnabled) {
+      try {
+        const stored = JSON.parse(sessionStorage.getItem(customerSessionKey) ?? "null") as Identity | null;
+        if (stored?.mode === "local" && stored.role === "CUSTOMER" && new RegExp(`^${UUID_PATTERN}$`).test(stored.actorId)) {
+          setIdentity(stored);
+        }
+      } catch { /* The connection form is available when storage is unavailable. */ }
+    }
+    setRestored(true);
+  }, []);
+
+  /**
+   * Người code: Kiên
+   * Ngày code: 31/10/2026
+   * Chức năng: Hàm xử lý nghiệp vụ connect
+   * Phiên bản: Version 1
+   */
+  function connect(next?: Identity) {
+    try {
+      if (next?.mode === "local") sessionStorage.setItem(customerSessionKey, JSON.stringify(next));
+      else sessionStorage.removeItem(customerSessionKey);
+    } catch { /* The current connection still works without storage. */ }
+    setIdentity(next);
+  }
+
+  return { identity, connect, restored };
+}
 
 /**
  * Người code: Kiên
@@ -37,47 +68,33 @@ const defaultPresets: PresetAccount[] = [
  */
 export function IdentityForm({ onConnect, customer = false }: { onConnect: (identity: Identity) => void; customer?: boolean }) {
   const [mode, setMode] = useState<Identity["mode"]>(localIdentityEnabled ? "local" : "jwt");
-  const [accounts, setAccounts] = useState<PresetAccount[]>(defaultPresets);
-  const [selectedAccountId, setSelectedAccountId] = useState(customer ? "33333333-3333-3333-3333-333333333333" : "11111111-1111-1111-1111-111111111111");
+  const [accounts, setAccounts] = useState<PresetAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
   const [customActorId, setCustomActorId] = useState("");
-  const [role, setRole] = useState(customer ? "CUSTOMER" : "MANAGEMENT");
+  const [role, setRole] = useState("MANAGEMENT");
+  const [loading, setLoading] = useState(localIdentityEnabled);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const selectedAccount = accounts.find((item) => item.id === selectedAccountId);
 
   useEffect(() => {
-    fetch("/aneon-api/shared/public-accounts")
-      .then((r) => r.json())
-      .then((json) => {
-        if (json?.data && Array.isArray(json.data)) {
-          const list: PresetAccount[] = json.data.map((item: { id: string; label: string }) => {
-            let detectedRole = "MANAGEMENT";
-            const upper = item.label.toUpperCase();
-            if (upper.includes("MARKETING")) detectedRole = "MARKETING";
-            else if (upper.includes("GIAM DOC") || upper.includes("DIRECTOR")) detectedRole = "DIRECTOR";
-            else if (upper.includes("VAN HANH") || upper.includes("OPERATIONS")) detectedRole = "OPERATIONS";
-            else if (upper.includes("KHACH") || upper.includes("CUSTOMER")) detectedRole = "CUSTOMER";
-            else if (upper.includes("KE TOAN") || upper.includes("ACCOUNTING")) detectedRole = "ACCOUNTING";
-            return { id: item.id, label: item.label, role: detectedRole };
-          });
-          setAccounts(list);
-        }
+    if (mode !== "local") return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    request<PresetAccount[]>("shared/public-accounts", { signal: controller.signal })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        const matching = data.filter((item) => customer ? item.role === "CUSTOMER" : Object.hasOwn(staffRoles, item.role));
+        setAccounts(matching);
+        const defaultRole = customer ? "CUSTOMER" : "MANAGEMENT";
+        setSelectedAccountId((previous) => previous === "custom" || matching.some(({ id }) => id === previous)
+          ? previous : matching.find((item) => item.role === defaultRole)?.id ?? matching[0]?.id ?? "");
       })
-      .catch(() => {});
-  }, []);
-
-  /**
-   * Người code: Kiên
-   * Ngày code: 31/10/2026
-   * Chức năng: Hàm xử lý sự kiện tương tác người dùng khi account select
-   * Phiên bản: Version 1
-   */
-  function handleAccountSelect(id: string) {
-    setSelectedAccountId(id);
-    if (id !== "custom") {
-      const match = accounts.find((a) => a.id === id);
-      if (match && !customer) {
-        setRole(match.role);
-      }
-    }
-  }
+      .catch((err: Error) => { if (!controller.signal.aborted) setError(err.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [attempt, customer, mode]);
 
   /**
    * Người code: Kiên
@@ -94,10 +111,12 @@ export function IdentityForm({ onConnect, customer = false }: { onConnect: (iden
       return;
     }
     const finalActorId = selectedAccountId === "custom" ? customActorId.trim() : selectedAccountId;
+    if (!finalActorId) return;
     onConnect({
       mode,
       actorId: finalActorId,
-      role: customer ? "CUSTOMER" : role,
+      role: customer ? "CUSTOMER" : selectedAccount?.role ?? role,
+      label: selectedAccount?.label,
       zones: String(form.get("zones") ?? "").trim(),
     });
   }
@@ -119,7 +138,8 @@ export function IdentityForm({ onConnect, customer = false }: { onConnect: (iden
       ) : (
         <>
           <Field label="Chọn tài khoản có sẵn">
-            <select className={input} value={selectedAccountId} onChange={(e) => handleAccountSelect(e.target.value)}>
+            <select className={input} required value={selectedAccountId} onChange={(e) => setSelectedAccountId(e.target.value)}>
+              <option value="" disabled>{loading ? "Đang tải tài khoản…" : "— Chọn tài khoản —"}</option>
               {accounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>
                   {acc.label}
@@ -128,6 +148,9 @@ export function IdentityForm({ onConnect, customer = false }: { onConnect: (iden
               <option value="custom">— Nhập UUID khác thủ công —</option>
             </select>
           </Field>
+          {error && <div className="flex flex-wrap items-center gap-2"><ErrorMessage message={error} />
+            <button type="button" className={secondary} onClick={() => setAttempt((value) => value + 1)}>Thử lại</button></div>}
+          {!loading && !error && accounts.length === 0 && <p className="text-sm text-ink-soft">Chưa có tài khoản phù hợp. Hãy nạp dữ liệu demo rồi tải lại trang.</p>}
           {selectedAccountId === "custom" && (
             <Field label="UUID tài khoản">
               <input
@@ -142,7 +165,8 @@ export function IdentityForm({ onConnect, customer = false }: { onConnect: (iden
               />
             </Field>
           )}
-          {!customer && (
+          {!customer && selectedAccount && <p className="text-sm text-ink-soft">Vai trò · {staffRoles[selectedAccount.role as keyof typeof staffRoles]}</p>}
+          {!customer && selectedAccountId === "custom" && (
             <>
               <Field label="Vai trò">
                 <select name="role" className={input} value={role} onChange={(e) => setRole(e.target.value)}>
@@ -160,7 +184,7 @@ export function IdentityForm({ onConnect, customer = false }: { onConnect: (iden
           )}
         </>
       )}
-      <button type="submit" className={`${primary} justify-self-start`}>Tiếp tục</button>
+      <button type="submit" disabled={mode === "local" && !selectedAccountId} className={`${primary} justify-self-start disabled:opacity-50`}>Tiếp tục</button>
     </form>
   );
 }
