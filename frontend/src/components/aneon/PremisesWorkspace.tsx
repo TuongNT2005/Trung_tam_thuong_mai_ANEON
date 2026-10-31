@@ -10,7 +10,8 @@
  * ==============================================================================
  */
 import { useState } from "react";
-import { formatDate, query, request, type Identity } from "@/lib/aneon-api";
+import Link from "next/link";
+import { formatDate, query, request, toOptionRecord, type Identity } from "@/lib/aneon-api";
 import { ErrorMessage, Field, input, panel, primary, secondary } from "./Ui";
 import { PremiseMap } from "./PremiseMap";
 import { useReferences } from "./ReferenceContext";
@@ -53,7 +54,11 @@ const historyActions: Record<string, string> = {
 function historySnapshot(value: unknown) {
   if (typeof value !== "string" || !value) return "—";
   let formatted = value;
-  try { formatted = JSON.stringify(JSON.parse(value), null, 2); } catch { /* Dữ liệu lịch sử cũ. */ }
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed?.status && statuses[parsed.status]) return statuses[parsed.status];
+    formatted = JSON.stringify(parsed, null, 2);
+  } catch { /* Dữ liệu lịch sử cũ. */ }
   return <details>
     <summary className="cursor-pointer whitespace-nowrap text-magenta-deep">Xem dữ liệu</summary>
     <pre className="mt-2 max-h-56 max-w-72 overflow-auto rounded bg-cream p-2 text-xs whitespace-pre-wrap wrap-break-word">{formatted}</pre>
@@ -72,14 +77,34 @@ export type PremisesView = "premises" | "stores" | "utilization" | "histories";
 /**
  * Người code: Kiên
  * Ngày code: 31/10/2026
+ * Chức năng: Hàm xử lý nghiệp vụ record href
+ * Phiên bản: Version 1
+ */
+function recordHref(view: "premises" | "stores", id: unknown) {
+  return `/quan-ly?${query({ view, record: String(id) })}`;
+}
+
+const areaFormat = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 });
+
+/**
+ * Người phụ trách code: Kiên | Ngày cập nhật local: 2026-11-17 | Phiên bản: v1.1.
+ * Chức năng: quản lý mặt bằng, cửa hàng, diện tích, trạng thái và lịch sử F01.
+ */
+/**
+ * Người code: Kiên
+ * Ngày code: 31/10/2026
  * Chức năng: Thành phần giao diện (Component) premises workspace hiển thị và xử lý tương tác người dùng
  * Phiên bản: Version 1
  */
-export function PremisesWorkspace({ view, identity }: { view: PremisesView; identity: Identity }) {
-  const { options: refOptions, refresh: refreshRef } = useReferences();
-  const [selected, setSelected] = useState<string>();
+export function PremisesWorkspace({ view, identity, initialFilters, initialRecord, onCloseRecord }: {
+  view: PremisesView; identity: Identity; initialFilters?: Record<string, string>;
+  initialRecord?: string; onCloseRecord?: () => void;
+}) {
+  const { options: refOptions, raw: references, refresh: refreshRef } = useReferences();
+  const [selected, setSelected] = useState(initialRecord);
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("");
+  const [createdStore, setCreatedStore] = useState<{ premiseId: string; id: string; code: string }>();
   const path = `f01/${view}`;
   const isStore = view === "stores";
   const columns = isStore ? storeColumns : premiseColumns;
@@ -88,16 +113,29 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
   const tenants = useResource<{ id: string; code: string; name: string }[]>(isStore && detailPath ? `${detailPath}/tenants` : undefined, identity, revision);
   const canWrite = allowed(identity, "MANAGEMENT");
   const canChangeStatus = isStore ? canWrite : allowed(identity, "MANAGEMENT", "OPERATIONS");
+  const allowedStatuses = Array.isArray(detail.data?.allowedStatuses) ? detail.data.allowedStatuses : [];
+  const remainingArea = typeof detail.data?.totalArea === "number" && typeof detail.data.allocatedArea === "number"
+    ? Math.max(0, detail.data.totalArea - detail.data.allocatedArea) : undefined;
+  const relatedContracts = references?.contracts.filter((contract) => contract.premiseId === selected);
 
   const zoneField: FormField = { name: "zoneId", label: "Khu vực", type: "uuid", options: refOptions.zones };
-  const locationField: FormField = { name: "locationId", label: "Vị trí", type: "uuid", options: refOptions.locations };
+  const locationField: FormField = { name: "locationId", label: "Vị trí", type: "uuid", options: refOptions.locations,
+    dependsOn: "premiseId", forSelection: (id) => {
+      const zone = references?.premises.find((premise) => premise.id === id)?.zoneId;
+      const locations = (references?.locations ?? []).filter((location) => zone && location.zoneId === zone);
+      return { options: toOptionRecord(locations), disabled: !zone || locations.length === 0,
+        emptyLabel: !id ? "Chọn mặt bằng trước" : !zone ? "Đang tải vị trí…" : locations.length ? "Không chọn vị trí" : "Khu vực chưa có vị trí" };
+    } };
   const premiseField: FormField = { name: "premiseId", label: "Mặt bằng", type: "uuid", options: refOptions.premises };
   const categoryField: FormField = { name: "categoryId", label: "Ngành hàng", type: "uuid", options: refOptions.categories };
 
   const premiseFields: FormField[] = [
     { ...name, placeholder: "Ví dụ: Gian hàng góc A01 - Tầng 1" },
     { ...zoneField, required: true },
-    { name: "totalArea", label: "Tổng diện tích (m²)", type: "number", min: 0.01, step: "0.01", required: true, placeholder: "Ví dụ: 45.5" },
+    { name: "totalArea", label: "Tổng diện tích (m²)", type: "number", min: Math.max(0.01, Number(detail.data?.allocatedArea ?? 0)),
+      step: "0.01", required: true, placeholder: "Ví dụ: 45.5",
+      helpText: typeof detail.data?.allocatedArea === "number" && detail.data.allocatedArea > 0
+        ? `Đã phân bổ ${areaFormat.format(detail.data.allocatedArea)} m² cho cửa hàng.` : undefined },
     { name: "type", label: "Loại mặt bằng", options: types },
     description,
   ];
@@ -105,12 +143,24 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
   const storeFields: FormField[] = [
     { ...name, placeholder: "Ví dụ: Highlands Coffee ANEON" },
     { ...premiseField, required: true },
-    { name: "area", label: "Diện tích (m²)", type: "number", min: 0.01, step: "0.01", required: true, placeholder: "Ví dụ: 45.5" },
+    { name: "area", label: "Diện tích (m²)", type: "number", min: 0.01, step: "0.01", required: true, placeholder: "Ví dụ: 45.5",
+      dependsOn: "premiseId", forSelection: (id) => {
+        const available = references?.premises.find((premise) => premise.id === id)?.remainingArea;
+        if (available === undefined) return {};
+        const existing = detail.data?.premiseId === id ? Number(detail.data.area ?? 0) : 0;
+        const max = Math.max(0, Math.round((available + existing) * 100) / 100);
+        return { max, helpText: `Có thể nhập tối đa ${areaFormat.format(max)} m² tại mặt bằng đã chọn.` };
+      } },
     categoryField,
     locationField,
     { name: "operatingHours", label: "Giờ hoạt động", max: 200, placeholder: "Ví dụ: 08:00 - 22:00 hàng ngày" },
     description,
     { name: "publicVisible", label: "Cho phép hiển thị công khai", type: "checkbox" },
+  ];
+  const createStoreFields: FormField[] = [
+    { ...code, label: "Mã cửa hàng / sạp", placeholder: "Ví dụ: CH-A01, CH-HIGHLANDS" },
+    ...storeFields,
+    { ...status, required: true },
   ];
 
   /**
@@ -126,19 +176,41 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
   }
 
   if (view === "utilization") return <Records identity={identity} path={path} revision={0}
-    filters={[zoneField, { name: "floorId", label: "Tầng", type: "uuid", options: refOptions.floors }, status]}
-    columns={[...premiseColumns, ["allocatedArea", "Đã phân bổ (m²)"]]}
-    extra={(page) => page.summary ? <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {Object.entries({ total: "Tổng mặt bằng", occupied: "Đã cho thuê", vacant: "Còn trống", maintenance: "Đang bảo trì" }).map(([key, label]) => (
-        <div key={key} className="rounded-xl bg-cream px-4 py-3"><p className="text-xs font-semibold text-ink-soft">{label}</p><p className="mt-1 font-display text-3xl text-plum">{String((page.summary as Row)[key])}</p></div>
-      ))}
-    </div> : null} />;
+    filters={[{ name: "floorId", label: "Tầng", type: "uuid", options: refOptions.floors },
+      { ...zoneField, dependsOn: "floorId", forSelection: (floor) => floor ? {
+        options: toOptionRecord(references?.zones.filter((zone) => zone.floorId === floor)),
+      } : {} }, status]}
+    columns={[...premiseColumns, ["allocatedArea", "Đã phân bổ (m²)"], ["id", "Hồ sơ", (id, record) =>
+      <Link className="whitespace-nowrap font-semibold text-magenta-deep underline" href={recordHref("premises", id)}
+        aria-label={`Mở hồ sơ ${record.code}`}>Mở hồ sơ</Link>]]}
+    extra={(page) => {
+      if (!page.summary) return null;
+      const summary = page.summary as Row;
+      const total = Number(summary.total);
+      const occupancy = total > 0 ? new Intl.NumberFormat("vi-VN", { style: "percent", maximumFractionDigits: 1 }).format(Number(summary.occupied) / total) : "—";
+      const stats = [
+        ["Tổng mặt bằng", total], ["Đã cho thuê", summary.occupied], ["Còn trống", summary.vacant],
+        ["Đang bảo trì", summary.maintenance], ["Tỷ lệ cho thuê theo số mặt bằng đang lọc", occupancy],
+      ];
+      return <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {stats.map(([label, value]) => <div key={String(label)} className="rounded-xl bg-cream px-4 py-3">
+          <p className="text-xs font-semibold text-ink-soft">{String(label)}</p><p className="mt-1 font-display text-3xl text-plum">{String(value)}</p>
+        </div>)}
+      </div>;
+    }} />;
 
-  if (view === "histories") return <Records identity={identity} path={path} revision={0}
+  if (view === "histories") return <Records identity={identity} path={path} revision={0} initialFilters={initialFilters}
     filters={[{ name: "targetCode", label: "Mã mặt bằng / cửa hàng", max: 50, placeholder: "Ví dụ: MB-A01, CH-001" }, { name: "targetType", label: "Đối tượng", options: historyTargets },
       { name: "action", label: "Loại thay đổi", options: historyActions }, { name: "changedBy", label: "Người thao tác", type: "uuid", options: refOptions.staff },
       { name: "from", label: "Từ ngày", type: "date" }, { name: "to", label: "Đến ngày", type: "date" }]}
-    columns={[["targetType", "Đối tượng", (value) => historyTargets[String(value)] ?? String(value)], ["targetId", "Mã đối tượng"], ...historyColumns]} />;
+    columns={[["targetType", "Đối tượng", (value) => historyTargets[String(value)] ?? String(value)],
+      ["targetId", "Mã đối tượng", (value, record) => {
+        const targetView = record.targetType === "MAT_BANG" ? "premises" : record.targetType === "CUA_HANG" ? "stores" : undefined;
+        const label = (refOptions.premises[String(value)] || refOptions.stores[String(value)])?.split(" — ")[0];
+        return label && targetView ? <Link className="font-semibold text-magenta-deep underline"
+          href={recordHref(targetView, value)}>{label}</Link> : label ?? "—";
+      }],
+      ...historyColumns.map((column): Column => column[0] === "changedBy" ? ["changedBy", "Người thao tác", (value) => refOptions.staff[String(value)] ?? "—"] : column)]} />;
 
   return <div className="grid gap-5">
     {notice && <p role="status" className="text-sm font-semibold text-green-800">{notice}</p>}
@@ -147,24 +219,20 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
         {!isStore && <CodeCheck identity={identity} />}
         {isStore ? (
           <MutationForm path={path} identity={identity} label="Tạo cửa hàng"
-            fields={[
-              { ...code, label: "Mã cửa hàng / sạp", placeholder: "Ví dụ: CH-A01, CH-HIGHLANDS" },
-              ...storeFields,
-              { ...status, required: true }
-            ]}
-            defaults={{ status: "VACANT" }} onSaved={saved} />
+            fields={createStoreFields}
+            defaults={{ status: "VACANT", premiseId: initialFilters?.premiseId }} onSaved={saved} />
         ) : (
           <CreatePremiseForm identity={identity} onSaved={saved} />
         )}
       </Action>
     </div>}
-    <Records path={path} identity={identity} revision={revision} columns={columns}
+    <Records path={path} identity={identity} revision={revision} columns={columns} initialFilters={initialFilters}
       filters={[search, isStore ? premiseField : zoneField, status]}
       onSelect={(id) => { setSelected(id); setNotice(""); }} />
     {detailPath && (
       <Modal
         open={!!detailPath}
-        onClose={() => setSelected(undefined)}
+        onClose={() => { setSelected(undefined); onCloseRecord?.(); }}
         title={String(detail.data?.name ?? "Chi tiết bản ghi")}
         maxWidth="max-w-4xl"
       >
@@ -183,15 +251,25 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
               <Details
                 data={detail.data}
                 columns={[
-                  ["id", "Mã hệ thống (ID)"],
                   ...columns,
-                  ["locationDescription", "Vị trí"],
+                  ["locationId", "Vị trí", (value) => refOptions.locations[String(value)] ?? "—"],
                   ["description", "Mô tả"],
                   ...(isStore
                     ? ([["operatingHours", "Giờ hoạt động"], ["publicVisible", "Công khai"]] as Column[])
-                    : ([["allocatedArea", "Đã phân bổ (m²)"]] as Column[])),
+                    : ([["allocatedArea", "Đã phân bổ (m²)"], ["remainingArea", "Còn có thể phân bổ (m²)",
+                      () => remainingArea === undefined ? "—" : areaFormat.format(remainingArea)]] as Column[])),
                 ]}
               />
+              {!isStore && canChangeStatus && relatedContracts && <details className="rounded-xl border border-cream-line p-3 text-sm">
+                <summary className="cursor-pointer font-semibold text-plum">Hợp đồng của mặt bằng ({relatedContracts.length})</summary>
+                {relatedContracts.length > 0 ? <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {relatedContracts.map((contract) => <li key={contract.id}>{contract.label}</li>)}
+                </ul> : <p className="mt-2 text-ink-soft">Chưa có hợp đồng liên kết với mặt bằng này.</p>}
+              </details>}
+              {!isStore && createdStore && createdStore.premiseId === selected &&
+                <div role="status" className="rounded-xl bg-green-50 p-3 text-sm text-green-950">
+                  Đã thêm {createdStore.code} vào mặt bằng. <Link className="font-semibold underline" href={recordHref("stores", createdStore.id)}>Mở cửa hàng vừa tạo</Link>
+                </div>}
               {isStore && (
                 <div className="grid gap-2 text-sm">
                   <h4 className="font-semibold text-plum">Khách thuê hiện tại</h4>
@@ -210,12 +288,38 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
                 </div>
               )}
               <div className="flex flex-wrap gap-3">
+                {!isStore && <Link className={secondary} href={`/quan-ly?view=stores&premise=${selected}`}>Xem cửa hàng của mặt bằng</Link>}
+                {isStore && Boolean(detail.data.premiseId) && <Link className={secondary}
+                  href={recordHref("premises", detail.data.premiseId)}>Mở hồ sơ mặt bằng</Link>}
+                {allowed(identity, "MANAGEMENT", "OPERATIONS", "DIRECTOR", "SYSTEM_ADMIN") && <Link className={secondary}
+                  href={`/quan-ly?view=histories&code=${encodeURIComponent(String(detail.data.code))}&targetType=${isStore ? "CUA_HANG" : "MAT_BANG"}`}>Xem lịch sử thay đổi</Link>}
+                {isStore && detail.data.publicVisible === true && detail.data.status !== "RETIRED" && <Link className={secondary}
+                  href={`/#gian-hang-${encodeURIComponent(String(detail.data.code))}`}>Xem trên cổng khách</Link>}
                 <button className={secondary} onClick={() => setRevision((value) => value + 1)}>
                   Tải lại chi tiết
                 </button>
               </div>
 
               <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {canWrite && !isStore && selected && <Action title="Thêm cửa hàng tại mặt bằng này">
+                  <div className="grid gap-1 rounded-xl bg-cream p-3 text-sm">
+                    <p className="font-semibold text-plum">{String(detail.data.code)} · {String(detail.data.name)}</p>
+                    {remainingArea !== undefined && <p>Còn có thể phân bổ {areaFormat.format(remainingArea)} m².</p>}
+                  </div>
+                  <MutationForm path="f01/stores" identity={identity} label="Tạo cửa hàng"
+                    fields={createStoreFields.filter((field) => field.name !== "premiseId").map((field) =>
+                      field.name === "locationId" ? {
+                        ...field, dependsOn: undefined, forSelection: undefined,
+                        options: Object.fromEntries((references?.locations ?? [])
+                          .filter((location) => location.zoneId === detail.data?.zoneId).map(({ id, label }) => [id, label])),
+                      } : field.name === "area" ? { ...field, dependsOn: undefined, forSelection: undefined,
+                        max: remainingArea === undefined ? undefined : Math.round(remainingArea * 100) / 100 } : field)}
+                    defaults={{ status: "VACANT" }} build={(body) => ({ ...body, premiseId: selected })}
+                    onSaved={(result) => {
+                      setCreatedStore({ premiseId: selected, id: String(result.id), code: String(result.code) });
+                      saved();
+                    }} />
+                </Action>}
                 {canWrite && (
                   <Action title="Chỉnh sửa thông tin">
                     <MutationForm
@@ -231,7 +335,7 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
                     />
                   </Action>
                 )}
-                {canChangeStatus && detail.data.status !== "RETIRED" && (
+                {canChangeStatus && allowedStatuses.length > 0 && (
                   <Action title="Đổi trạng thái">
                     <MutationForm
                       path={`${detailPath}/status`}
@@ -243,8 +347,9 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
                           ...status,
                           required: true,
                           options: Object.fromEntries(
-                            Object.entries(statuses).filter(([key]) => key !== detail.data?.status)
+                            Object.entries(statuses).filter(([key]) => allowedStatuses.includes(key))
                           ),
+                          helpText: "Mặt bằng hoặc cửa hàng còn hợp đồng hiệu lực có thể bị giới hạn khi chuyển sang Còn trống.",
                         },
                         reason,
                       ]}
@@ -254,12 +359,15 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
                   </Action>
                 )}
                 {canWrite && !isStore && (
-                  <Action title="Gắn vị trí mặt bằng">
+                  <Action title="Gắn vị trí mặt bằng" maxWidth="max-w-6xl">
                     <PremiseMap
                       key={`${detailPath}-premise-map`}
                       path={detailPath}
                       identity={identity}
                       currentId={detail.data.locationId}
+                      premiseCode={String(detail.data.code)}
+                      floorName={String(detail.data.floorName ?? "")}
+                      zoneName={String(detail.data.zoneName ?? "")}
                       onSaved={saved}
                     />
                   </Action>
@@ -276,7 +384,8 @@ export function PremisesWorkspace({ view, identity }: { view: PremisesView; iden
                           label: "Mã/Số hợp đồng",
                           type: "uuid",
                           required: true,
-                          options: refOptions.contracts,
+                          options: toOptionRecord(relatedContracts),
+                          emptyLabel: relatedContracts?.length ? "— Chọn hợp đồng của mặt bằng —" : "Mặt bằng chưa có hợp đồng để chọn",
                         },
                       ]}
                       onSaved={saved}
@@ -339,7 +448,6 @@ function CreatePremiseForm({ identity, onSaved }: { identity: Identity; onSaved:
   const [error, setError] = useState("");
   const [result, setResult] = useState<Row>();
 
-  // Filter locations by selectedZoneId
   const availableLocations = (raw?.locations ?? []).filter((loc) => loc.zoneId === selectedZoneId);
 
   /**
@@ -350,12 +458,7 @@ function CreatePremiseForm({ identity, onSaved }: { identity: Identity; onSaved:
    */
   const handleZoneChange = (newZoneId: string) => {
     setSelectedZoneId(newZoneId);
-    const locs = (raw?.locations ?? []).filter((loc) => loc.zoneId === newZoneId);
-    if (locs.length > 0) {
-      setSelectedLocationId(locs[0].id);
-    } else {
-      setSelectedLocationId("");
-    }
+    setSelectedLocationId("");
   };
 
   /**
@@ -508,7 +611,7 @@ function CreatePremiseForm({ identity, onSaved }: { identity: Identity; onSaved:
           </select>
           {selectedZoneId && availableLocations.length > 0 && (
             <span className="font-normal text-xs text-ink-soft">
-              Đã tự động lọc vị trí theo khu vực và chọn vị trí tương ứng.
+              Danh sách chỉ hiện vị trí thuộc khu vực đã chọn.
             </span>
           )}
         </Field>

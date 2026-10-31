@@ -21,7 +21,8 @@ export default function WorkspacePage() {
   return <>
     <TopBar />
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 md:px-10 md:py-10">
-      <Workspace />
+      <Suspense fallback={<p role="status">Đang mở cổng quản lý…</p>}><Workspace /></Suspense>
     </main>
   </>;
 }
+import { Suspense } from "react";

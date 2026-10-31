@@ -10,21 +10,25 @@
  * ==============================================================================
  */
 import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { formatDate, request, type Identity } from "@/lib/aneon-api";
+import { checkInStatusText, formatDate, localIdentityEnabled, request, toOptionRecord, UUID_PATTERN, type CheckInContext, type Identity, type OptionItem } from "@/lib/aneon-api";
+import { CustomerPicker, type CustomerMatch } from "./CustomerPicker";
 import { EventsWorkspace } from "./EventsWorkspace";
 import { IdentityForm, staffRoles } from "./IdentityForm";
+import { FloorPlansView } from "./FloorPlans";
 import { PremisesWorkspace, type PremisesView } from "./PremisesWorkspace";
 import { PromotionsWorkspace } from "./PromotionsWorkspace";
 import { ReferenceProvider, useReferences } from "./ReferenceContext";
 import { ErrorMessage, Field, input, panel, primary, secondary } from "./Ui";
-import { allowed, selectOptions } from "./WorkspaceUi";
+import { allowed, selectOptions, useResource } from "./WorkspaceUi";
 
-type View = PremisesView | "events" | "promotions" | "vouchers" | "assist";
+type View = PremisesView | "floorplans" | "events" | "promotions" | "vouchers" | "assist";
 const staffReaders = ["MANAGEMENT", "OPERATIONS", "DIRECTOR", "ACCOUNTING", "SYSTEM_ADMIN"];
 const views: { id: View; label: string; group: "F01" | "F10"; roles: string[] }[] = [
   { id: "premises", label: "Mặt bằng", group: "F01", roles: staffReaders },
   { id: "stores", label: "Cửa hàng / sạp", group: "F01", roles: staffReaders },
+  { id: "floorplans", label: "Bản vẽ các tầng", group: "F01", roles: staffReaders },
   { id: "utilization", label: "Tình hình khai thác", group: "F01", roles: ["MANAGEMENT", "OPERATIONS", "DIRECTOR"] },
   { id: "histories", label: "Lịch sử thay đổi", group: "F01", roles: ["MANAGEMENT", "OPERATIONS", "DIRECTOR", "SYSTEM_ADMIN"] },
   { id: "events", label: "Sự kiện", group: "F10", roles: ["MANAGEMENT", "DIRECTOR", "MARKETING", "SYSTEM_ADMIN"] },
@@ -42,60 +46,36 @@ const eventPhoto = "/aneon/mall-event.webp";
  * Chức năng: Thành phần giao diện (Component) assist check in hiển thị và xử lý tương tác người dùng
  * Phiên bản: Version 1
  */
-function AssistCheckIn({ identity }: { identity: Identity }) {
-  const { options } = useReferences();
-  const [selectedEventId, setSelectedEventId] = useState("");
-  const [selectedCustomerId, setSelectedCustomerId] = useState("");
-  const [qrToken, setQrToken] = useState("");
-  const [loadingQr, setLoadingQr] = useState(false);
-  const [qrStatus, setQrStatus] = useState<"idle" | "ready" | "none">("idle");
+function AssistCheckIn({ identity, initialEvent }: { identity: Identity; initialEvent?: string }) {
+  const [selectedEventId, setSelectedEventId] = useState(initialEvent ?? "");
+  const [customer, setCustomer] = useState<CustomerMatch>();
+  const [focusSearch, setFocusSearch] = useState(false);
+  const [pickerRevision, setPickerRevision] = useState(0);
+  const [eventsRevision, setEventsRevision] = useState(0);
+  const [revision, setRevision] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ checkInAt: string; duplicate: boolean } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ checkInAt: string; duplicate: boolean }>();
+  const [error, setError] = useState("");
+  const context = useResource<CheckInContext>(
+    selectedEventId ? `f10/events/${selectedEventId}/check-in-status` : undefined, identity, revision
+  );
+  const events = useResource<OptionItem[]>("shared/check-in-events", identity, eventsRevision);
+  const eventOptions = toOptionRecord(events.data);
+  const linkedEvent = selectedEventId && !eventOptions[selectedEventId] ? selectedEventId : undefined;
 
-  useEffect(() => {
-    if (!selectedEventId) {
-      setQrToken("");
-      setQrStatus("idle");
-      return;
-    }
-    let active = true;
-    setLoadingQr(true);
-    setQrStatus("idle");
-    setError(null);
-    setResult(null);
-
-    request<{ token?: string; checkInUrl?: string; active?: boolean } | null>(
-      `f10/events/${encodeURIComponent(selectedEventId)}/qr-code`,
-      { identity }
-    )
-      .then((data) => {
-        if (!active) return;
-        if (data?.token) {
-          setQrToken(data.token);
-          setQrStatus("ready");
-        } else if (data?.checkInUrl && data.checkInUrl.includes("token=")) {
-          const extracted = data.checkInUrl.substring(data.checkInUrl.indexOf("token=") + 6).split("&")[0];
-          setQrToken(extracted);
-          setQrStatus("ready");
-        } else {
-          setQrToken("");
-          setQrStatus("none");
-        }
-      })
-      .catch(() => {
-        if (!active) return;
-        setQrToken("");
-        setQrStatus("none");
-      })
-      .finally(() => {
-        if (active) setLoadingQr(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedEventId, identity]);
+  /**
+   * Người code: Kiên
+   * Ngày code: 31/10/2026
+   * Chức năng: Hàm xử lý nghiệp vụ next customer
+   * Phiên bản: Version 1
+   */
+  function nextCustomer(focus = false) {
+    setCustomer(undefined);
+    setFocusSearch(focus);
+    setResult(undefined);
+    setError("");
+    setPickerRevision((value) => value + 1);
+  }
 
   /**
    * Người code: Kiên
@@ -105,110 +85,79 @@ function AssistCheckIn({ identity }: { identity: Identity }) {
    */
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!selectedEventId || !selectedCustomerId) return;
+    if (context.data?.state !== "READY" || !customer || submitting || result) return;
     setSubmitting(true);
-    setError(null);
-    setResult(null);
-
+    setError("");
+    setResult(undefined);
     try {
-      const res = await request<{ checkInAt: string; duplicate: boolean }>(
-        `f10/events/${encodeURIComponent(selectedEventId)}/check-ins`,
-        {
-          identity,
-          method: "POST",
-          body: {
-            customerId: selectedCustomerId,
-            qrToken: qrToken || "AUTO",
-          },
-        }
-      );
-      setResult(res);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Đã có lỗi xảy ra");
+      setResult(await request(`f10/events/${selectedEventId}/check-ins`, {
+        identity, method: "POST", body: { customerId: customer.id },
+      }));
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setSubmitting(false);
     }
   }
 
-  return (
-    <div className={`${panel} grid max-w-2xl gap-5`}>
-      <div>
-        <h3 className="font-display text-xl font-semibold text-plum">Xác nhận check-in cho khách</h3>
-        <p className="mt-1 text-sm text-ink-soft">
-          Hỗ trợ check-in sự kiện cho khách hàng không mang theo điện thoại hoặc gặp trục trặc khi quét mã QR.
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="grid gap-4">
-        <Field label="Sự kiện">
-          <select
-            className={input}
-            required
-            value={selectedEventId}
-            onChange={(e) => setSelectedEventId(e.target.value)}
-          >
-            <option value="">— Vui lòng chọn sự kiện —</option>
-            {selectOptions(options.events)}
-          </select>
-        </Field>
-
-        {selectedEventId && (
-          <div>
-            {loadingQr ? (
-              <p className="text-xs text-ink-soft">⏳ Đang tải mã QR hoạt động của sự kiện...</p>
-            ) : qrStatus === "ready" ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-                <p className="font-semibold flex items-center gap-1.5">
-                  <span className="inline-block size-2 rounded-full bg-emerald-600"></span>
-                  Đã tự động liên kết mã QR đang hoạt động của sự kiện
-                </p>
-                <p className="mt-1 truncate font-mono text-[11px] text-emerald-700">
-                  Token: {qrToken}
-                </p>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                <p className="font-semibold">⚠️ Sự kiện này chưa có mã QR check-in hoạt động</p>
-                <p className="mt-0.5 text-ink-soft">
-                  Vui lòng tạo mã QR trong chi tiết sự kiện trước khi hỗ trợ check-in.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        <Field label="Khách mua sắm">
-          <select
-            className={input}
-            required
-            value={selectedCustomerId}
-            onChange={(e) => setSelectedCustomerId(e.target.value)}
-          >
-            <option value="">— Chọn khách hàng mua sắm —</option>
-            {selectOptions(options.customers)}
-          </select>
-        </Field>
-
-        {error && <ErrorMessage message={error} />}
-
-        {result && (
-          <div className="rounded-xl border border-cream-line bg-cream p-4 text-sm">
-            <p className="font-semibold text-plum">
-              {result.duplicate ? "Khách đã check-in trước đó lúc" : "Check-in thành công lúc"} {formatDate(result.checkInAt)}
-            </p>
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={!selectedEventId || !selectedCustomerId || qrStatus === "none" || loadingQr || submitting}
-          className={`${primary} justify-self-start disabled:opacity-50`}
-        >
+  return <div className={`${panel} grid max-w-2xl gap-5`}>
+    <p className="text-sm text-ink-soft">Chọn sự kiện, hỏi số điện thoại hoặc thẻ thành viên rồi đối chiếu thông tin trước khi xác nhận.</p>
+    <form onSubmit={handleSubmit} className="grid gap-4">
+      <Field label="Sự kiện">
+        <select className={input} required disabled={submitting} value={selectedEventId} onChange={(event) => {
+          setSelectedEventId(event.target.value);
+          nextCustomer();
+        }}>
+          <option value="">{events.loading ? "Đang tải sự kiện…" : "— Chọn sự kiện —"}</option>
+          {linkedEvent && <option value={linkedEvent}>{context.data?.name ?? "Sự kiện được bàn giao"}</option>}
+          {selectOptions(eventOptions)}
+        </select>
+      </Field>
+      {events.error && <div className="flex flex-wrap items-center gap-2"><ErrorMessage message={events.error} />
+        <button type="button" className={secondary} onClick={() => setEventsRevision((value) => value + 1)}>Tải lại danh sách sự kiện</button></div>}
+      {events.data?.length === 0 && !selectedEventId && <p className="text-sm text-ink-soft">Chưa có sự kiện phù hợp để hỗ trợ check-in.</p>}
+      {context.loading && <p role="status" className="text-sm text-ink-soft">Đang kiểm tra trạng thái sự kiện…</p>}
+      {context.error && <ErrorMessage message={context.error} />}
+      {context.data && <p role="status" className="rounded-lg bg-cream p-3 text-sm">{checkInStatusText(context.data)}</p>}
+      {selectedEventId && !context.loading && (context.data?.state !== "READY" || error) &&
+        <button type="button" className={`${secondary} justify-self-start`} onClick={() => {
+          nextCustomer();
+          setRevision((value) => value + 1);
+        }}>Kiểm tra lại trạng thái sự kiện</button>}
+      {context.data?.state === "READY" && !result && <fieldset disabled={submitting} className="grid min-w-0 gap-4">
+        <legend className="sr-only">Khách cần hỗ trợ</legend>
+        <CustomerPicker key={`${selectedEventId}-${pickerRevision}`} identity={identity}
+          path={`f10/events/${selectedEventId}/check-in-customers`} focusSearch={focusSearch}
+          onSelect={(match) => { setCustomer(match); setError(""); }} />
+        {customer && <button type="submit" disabled={submitting} className={`${primary} justify-self-start`}>
           {submitting ? "Đang xử lý…" : "Xác nhận check-in cho khách"}
-        </button>
-      </form>
-    </div>
-  );
+        </button>}
+      </fieldset>}
+      {error && <ErrorMessage message={error} />}
+      {result && customer && <>
+        <div role="status" className="rounded-lg bg-green-50 p-4 text-sm text-green-900">
+          <p className="font-semibold">{result.duplicate ? "Khách đã check-in trước đó" : "Check-in thành công"}</p>
+          <p className="mt-1">{customer.name} · {formatDate(result.checkInAt)}</p>
+        </div>
+        <button type="button" className={`${primary} justify-self-start`} onClick={() => nextCustomer(true)}>Check-in khách tiếp theo</button>
+      </>}
+    </form>
+  </div>;
+}
+
+const sessionKey = "aneon-local-staff";
+const uuid = new RegExp(`^${UUID_PATTERN}$`);
+
+/**
+ * Người code: Kiên
+ * Ngày code: 31/10/2026
+ * Chức năng: Thành phần giao diện (Component) reference errors hiển thị và xử lý tương tác người dùng
+ * Phiên bản: Version 1
+ */
+function ReferenceErrors() {
+  const { error, refresh } = useReferences();
+  return error ? <div className="flex flex-wrap items-center gap-3"><ErrorMessage message={error} />
+    <button className={secondary} onClick={refresh}>Tải lại danh mục</button></div> : null;
 }
 
 /**
@@ -218,18 +167,43 @@ function AssistCheckIn({ identity }: { identity: Identity }) {
  * Phiên bản: Version 1
  */
 function WorkspaceDashboard({ identity, onDisconnect }: { identity: Identity; onDisconnect: () => void }) {
-  const [view, setView] = useState<View>();
+  const router = useRouter();
+  const params = useSearchParams();
+  const view = params.get("view") ?? (params.has("event") ? "events" : undefined);
+  const eventParam = params.get("event");
+  const eventId = eventParam && uuid.test(eventParam) ? eventParam : undefined;
   const available = views.filter(({ roles }) => allowed(identity, ...roles));
   const current = available.find(({ id }) => id === view) ?? available[0];
   const role = identity.mode === "local" ? staffRoles[identity.role as keyof typeof staffRoles] : undefined;
+  const premise = params.get("premise");
+  const historyCode = params.get("code");
+  const historyType = params.get("targetType");
+  const recordParam = params.get("record");
+  const recordId = (current?.id === "premises" || current?.id === "stores") && recordParam && uuid.test(recordParam)
+    ? recordParam : undefined;
+  const premiseFilters: Record<string, string> | undefined = current?.id === "stores" && premise && uuid.test(premise) ? { premiseId: premise }
+    : current?.id === "histories" && historyCode ? { targetCode: historyCode, targetType: historyType ?? "" } : undefined;
 
-  return (
+  /**
+   * Người code: Kiên
+   * Ngày code: 31/10/2026
+   * Chức năng: Hàm xử lý nghiệp vụ open view
+   * Phiên bản: Version 1
+   */
+  function openView(nextView: View, nextEvent?: string) {
+    const search = new URLSearchParams({ view: nextView });
+    if (nextEvent) search.set("event", nextEvent);
+    router.push(`/quan-ly?${search}`, { scroll: false });
+  }
+
+  return <ReferenceProvider identity={identity} enabled={current?.id !== "assist"}>
     <div className="grid items-start gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
       <aside className={panel}>
         <div className="mb-5 border-b border-cream-line pb-4">
-          <p className="text-sm font-semibold text-plum">{role ? `${role} · Local` : "Phiên dùng token"}</p>
+          <p className="text-sm font-semibold text-plum">{identity.mode === "local" ? identity.label || role : "Phiên dùng token"}</p>
+          {role && <p className="text-xs text-ink-soft">{role} · Chế độ demo</p>}
           <button className="mt-2 text-sm font-semibold text-magenta-deep underline underline-offset-4" onClick={onDisconnect}>
-            Kết thúc phiên
+            Đổi tài khoản
           </button>
         </div>
         <nav aria-label="Nghiệp vụ" className="grid gap-5 sm:grid-cols-2 lg:grid-cols-1">
@@ -246,7 +220,7 @@ function WorkspaceDashboard({ identity, onDisconnect }: { identity: Identity; on
                       <button
                         key={id}
                         type="button"
-                        onClick={() => setView(id)}
+                        onClick={() => openView(id)}
                         aria-current={current?.id === id ? "page" : undefined}
                         className={`rounded-lg px-3 py-2.5 text-left text-sm font-semibold ${
                           current?.id === id ? "bg-plum text-white" : "hover:bg-cream"
@@ -283,17 +257,31 @@ function WorkspaceDashboard({ identity, onDisconnect }: { identity: Identity; on
           </div>
         </header>
         {!current && <p className={panel}>Vai trò này chưa có quyền trên màn hình quản lý.</p>}
-        {current?.group === "F01" && <PremisesWorkspace identity={identity} view={current.id as PremisesView} key={current.id} />}
-        {current?.id === "events" && <EventsWorkspace identity={identity} />}
+        {view && current?.id !== view && <p className="rounded-lg bg-cream p-3 text-sm">Tài khoản hiện tại chưa có quyền mở nghiệp vụ trong liên kết.</p>}
+        {current?.id !== "assist" && <ReferenceErrors />}
+        {current?.id === "floorplans" && <FloorPlansView />}
+        {current?.group === "F01" && current.id !== "floorplans" && <PremisesWorkspace identity={identity} view={current.id as PremisesView}
+          initialFilters={premiseFilters} initialRecord={recordId}
+          onCloseRecord={recordId ? () => {
+            const search = new URLSearchParams(params.toString());
+            search.delete("record");
+            router.replace(`/quan-ly?${search}`, { scroll: false });
+          } : undefined}
+          key={`${current.id}-${JSON.stringify(premiseFilters)}-${recordId ?? ""}`} />}
+        {current?.id === "events" && <EventsWorkspace identity={identity} selected={eventId} onSelect={(id) => openView("events", id)} />}
         {(current?.id === "promotions" || current?.id === "vouchers") && (
           <PromotionsWorkspace identity={identity} view={current.id} key={current.id} />
         )}
-        {current?.id === "assist" && <AssistCheckIn identity={identity} />}
+        {current?.id === "assist" && <AssistCheckIn key={eventId ?? "assist"} identity={identity} initialEvent={eventId} />}
       </section>
     </div>
-  );
+  </ReferenceProvider>;
 }
 
+/**
+ * Người phụ trách code: Kiên | Ngày cập nhật local: 2026-11-17 | Phiên bản: v1.1.
+ * Chức năng: điều hướng các phân hệ F01, F10 theo quyền và liên kết hồ sơ.
+ */
 /**
  * Người code: Kiên
  * Ngày code: 31/10/2026
@@ -302,6 +290,35 @@ function WorkspaceDashboard({ identity, onDisconnect }: { identity: Identity; on
  */
 export function Workspace() {
   const [identity, setIdentity] = useState<Identity>();
+  const [restored, setRestored] = useState(false);
+
+  useEffect(() => {
+    if (localIdentityEnabled) {
+      try {
+        const stored = JSON.parse(sessionStorage.getItem(sessionKey) ?? "null") as Identity | null;
+        if (stored?.mode === "local" && uuid.test(stored.actorId) && Object.hasOwn(staffRoles, stored.role)) {
+          setIdentity(stored);
+        }
+      } catch { /* The connection form is available when storage is unavailable. */ }
+    }
+    setRestored(true);
+  }, []);
+
+  /**
+   * Người code: Kiên
+   * Ngày code: 31/10/2026
+   * Chức năng: Hàm xử lý nghiệp vụ connect
+   * Phiên bản: Version 1
+   */
+  function connect(next?: Identity) {
+    try {
+      if (next?.mode === "local") sessionStorage.setItem(sessionKey, JSON.stringify(next));
+      else sessionStorage.removeItem(sessionKey);
+    } catch { /* The current connection still works without storage. */ }
+    setIdentity(next);
+  }
+
+  if (!restored) return <p role="status">Đang mở cổng quản lý…</p>;
 
   if (!identity)
     return (
@@ -327,15 +344,11 @@ export function Workspace() {
             <p className="mb-6 text-sm leading-relaxed text-ink-soft">
               Dùng tài khoản được cấp quyền cho nghiệp vụ bạn phụ trách.
             </p>
-            <IdentityForm onConnect={(next) => setIdentity(next)} />
+            <IdentityForm onConnect={connect} />
           </div>
         </section>
       </div>
     );
 
-  return (
-    <ReferenceProvider identity={identity}>
-      <WorkspaceDashboard identity={identity} onDisconnect={() => setIdentity(undefined)} />
-    </ReferenceProvider>
-  );
+  return <WorkspaceDashboard identity={identity} onDisconnect={() => connect()} />;
 }
