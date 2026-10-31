@@ -9,10 +9,12 @@
  * Phiên bản: Version 1
  * ==============================================================================
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import Link from "next/link";
 import qrcode from "qrcode-generator";
 import { formatDate, type Identity } from "@/lib/aneon-api";
-import { ErrorMessage, panel, secondary } from "./Ui";
+import { ErrorMessage, panel, primary, secondary } from "./Ui";
 import { useReferences } from "./ReferenceContext";
 import { Action, allowed, Details, Modal, MutationForm, Records, useResource, type Column, type FormField, type Row } from "./WorkspaceUi";
 import { EventAttachments } from "./EventAttachments";
@@ -54,22 +56,38 @@ function dateInput(value: unknown) {
 }
 
 /**
+ * Người phụ trách code: Kiên | Ngày cập nhật local: 2026-11-17 | Phiên bản: v1.1.
+ * Chức năng: nối đề xuất, duyệt, công bố, QR và báo cáo sự kiện trên workspace.
+ */
+/**
  * Người code: Kiên
  * Ngày code: 31/10/2026
  * Chức năng: Thành phần giao diện (Component) events workspace hiển thị và xử lý tương tác người dùng
  * Phiên bản: Version 1
  */
-export function EventsWorkspace({ identity }: { identity: Identity }) {
+export function EventsWorkspace({ identity, selected, onSelect }: {
+  identity: Identity; selected?: string; onSelect: (id?: string) => void;
+}) {
   const { options: refOptions, refresh: refreshRef } = useReferences();
-  const [selected, setSelected] = useState<string>();
   const [revision, setRevision] = useState(0);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<{ id: string; message: string }>();
+  const [queue, setQueue] = useState(identity.mode === "local" && identity.role === "DIRECTOR" ? "PENDING_APPROVAL" : "");
+  const [copied, setCopied] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const detailPath = selected ? `${eventPath}/${selected}` : undefined;
   const detail = useResource<Row>(detailPath, identity, revision);
   const canMarket = allowed(identity, "MARKETING");
   const canApprove = allowed(identity, "MANAGEMENT", "DIRECTOR");
   const canReport = allowed(identity, "MANAGEMENT", "DIRECTOR", "MARKETING");
   const ownsDraft = detail.data?.status === "DRAFT" && canMarket && (identity.mode === "jwt" || identity.actorId === detail.data.proposedBy);
+  const approved = ["APPROVED", "ONGOING"].includes(String(detail.data?.status));
+  const currentEvent = approved && Date.parse(String(detail.data?.endAt)) > Date.now();
+  const canPublish = canMarket && (identity.mode === "jwt" || identity.actorId === detail.data?.proposedBy);
+  const publicUrl = `/kham-pha/su-kien/${selected}`;
+
+  useEffect(() => {
+    if (selected) profileRef.current?.focus({ preventScroll: false });
+  }, [selected]);
 
   const locationField: FormField = { name: "locationId", label: "Địa điểm / Vị trí", type: "uuid", options: refOptions.locations, required: true };
   const proposalFields: FormField[] = [
@@ -108,14 +126,13 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
    * Chức năng: Hàm xử lý nghiệp vụ saved
    * Phiên bản: Version 1
    */
-  function saved() {
+  function saved(message: string, id = selected ?? "") {
     setRevision((value) => value + 1);
-    setNotice("Đã lưu thay đổi cho sự kiện.");
+    setNotice({ id, message });
     refreshRef();
   }
 
-  return <div className="grid gap-5">
-    {notice && <p role="status" className="font-semibold text-green-800">{notice}</p>}
+  if (!selected) return <div className="grid gap-5">
     {canMarket && (
       <div className={`${panel} grid gap-3 sm:grid-cols-2`}>
         <Action title="Đề xuất sự kiện">
@@ -125,8 +142,8 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
             fields={proposalFields}
             label="Gửi đề xuất"
             onSaved={(data) => {
-              setSelected(String(data.id));
-              saved();
+              onSelect(String(data.id));
+              saved("Đã gửi đề xuất. Giám đốc hoặc Ban quản lý có thể mở hồ sơ để duyệt.", String(data.id));
             }}
           />
         </Action>
@@ -137,14 +154,20 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
             fields={proposalFields}
             label="Lưu bản nháp"
             onSaved={(data) => {
-              setSelected(String(data.id));
-              saved();
+              onSelect(String(data.id));
+              saved("Đã lưu bản nháp. Kiểm tra thông tin và gửi duyệt khi hoàn tất.", String(data.id));
             }}
           />
         </Action>
       </div>
     )}
-    <Records
+    <div className="flex flex-wrap gap-2" aria-label="Danh sách công việc">
+      {[["", "Tất cả sự kiện"], ["PENDING_APPROVAL", canApprove ? "Chờ tôi duyệt" : "Chờ duyệt"], ["APPROVED", "Đã duyệt"]].map(([status, label]) => (
+        <button key={status} type="button" className={`${secondary} aria-pressed:border-magenta-deep aria-pressed:bg-cream`}
+          aria-pressed={queue === status} onClick={() => setQueue(status)}>{label}</button>
+      ))}
+    </div>
+    <Records key={queue} initialFilters={{ status: queue }}
       path={eventPath}
       identity={identity}
       revision={revision}
@@ -153,37 +176,57 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
         { name: "q", label: "Tên hoặc mã sự kiện", max: 200, placeholder: "Tìm theo tên hoặc mã sự kiện..." },
         { name: "status", label: "Trạng thái", options: statuses },
       ]}
-      onSelect={(id) => {
-        setSelected(id);
-        setNotice("");
-      }}
+      onSelect={onSelect}
     />
+  </div>;
+
+  return <div ref={profileRef} tabIndex={-1} className="grid gap-5 focus:outline-none">
+    <div className="flex flex-wrap items-center gap-3">
+      <button className={secondary} onClick={() => { setCopied(false); onSelect(); }}>← Danh sách sự kiện</button>
+      <button className={secondary} onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          setCopied(true);
+        } catch { setCopied(false); }
+      }}>{copied ? "Đã sao chép" : "Sao chép liên kết bàn giao"}</button>
+      <Link className="text-sm font-semibold text-magenta-deep underline" href={`/quan-ly?view=events&event=${selected}`}>Liên kết hồ sơ</Link>
+    </div>
+    {notice?.id === selected && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm font-semibold text-green-900">{notice.message}</p>}
     {detailPath && (
-      <Modal
-        open={!!detailPath}
-        onClose={() => setSelected(undefined)}
-        title={String(detail.data?.name ?? "Chi tiết sự kiện")}
-        maxWidth="max-w-4xl"
-      >
         <div className="grid gap-5">
           {detail.loading && <p role="status">Đang tải chi tiết…</p>}
-          {detail.error && <ErrorMessage message={detail.error} />}
+          {detail.error && <div className="flex flex-wrap items-center gap-3"><ErrorMessage message={detail.error} />
+            <button className={secondary} onClick={() => setRevision((value) => value + 1)}>Tải lại hồ sơ</button></div>}
           {detail.data && (
             <>
+              <section className={`${panel} grid gap-4`} aria-labelledby="event-heading">
+              <h2 id="event-heading" className="font-display text-3xl text-plum">{String(detail.data.name)}</h2>
+              <div className="rounded-xl bg-cream p-4 text-sm" aria-label="Bước tiếp theo">
+                <p className="font-semibold text-plum">{statuses[String(detail.data.status)]}
+                  {approved && (detail.data.publicVisible ? " · Đã công khai" : " · Chưa công khai")}</p>
+                <p className="mt-1 text-ink-soft">{detail.data.status === "DRAFT" ? "Marketing kiểm tra nội dung, đính kèm tài liệu nếu cần và gửi duyệt."
+                  : detail.data.status === "PENDING_APPROVAL" ? "Giám đốc hoặc Ban quản lý xem đề xuất và duyệt ngân sách."
+                  : currentEvent ? (detail.data.publicVisible ? "Marketing chuẩn bị lịch và QR. Vận hành hỗ trợ khách khi đến giờ check-in."
+                    : "Marketing công bố sự kiện để khách tìm được lịch và địa điểm.")
+                  : approved ? "Khung giờ sự kiện đã kết thúc. Mở báo cáo để xem kết quả."
+                  : "Xem trạng thái và lý do trong thông tin hồ sơ."}</p>
+                {currentEvent && detail.data.publicVisible === true && <Link className="mt-2 inline-block font-semibold text-magenta-deep underline" href={publicUrl}>Xem trên cổng khách</Link>}
+              </div>
               <Details
                 data={detail.data}
                 columns={[
                   ...eventColumns.filter(([key]) => key !== "createdAt"),
-                  ["id", "Mã hệ thống (ID)"],
                   ["locationDescription", "Địa điểm"],
                   ["startAt", "Bắt đầu", date],
                   ["endAt", "Kết thúc", date],
                   ["approvedBudget", "Ngân sách đã duyệt", amount],
                   ["targetAttendees", "Số khách mục tiêu"],
-                  ["publicVisible", "Công khai"],
+                  ["participatingStoreIds", "Gian hàng tham gia", (value) => Array.isArray(value)
+                    ? value.map((id) => refOptions.stores[id]).filter(Boolean).join(", ") || "—" : "—"],
                   ["rejectionReason", "Lý do từ chối"],
                 ]}
               />
+              </section>
               <div className="mt-2 grid gap-3 sm:grid-cols-2">
                 {ownsDraft && (
                   <>
@@ -196,7 +239,7 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
                         label="Lưu chỉnh sửa"
                         defaults={{ ...detail.data, startAt: dateInput(detail.data.startAt), endAt: dateInput(detail.data.endAt) }}
                         build={(body) => ({ ...body, code: detail.data?.code })}
-                        onSaved={saved}
+                        onSaved={() => saved("Đã cập nhật bản nháp.")}
                       />
                     </Action>
                     <Action title="Gửi bản nháp để duyệt">
@@ -205,7 +248,7 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
                         path={`${detailPath}/submission?version=${detail.data.version}`}
                         fields={[]}
                         label="Gửi duyệt"
-                        onSaved={saved}
+                        onSaved={() => saved("Đã gửi duyệt. Chuyển liên kết hồ sơ cho Giám đốc hoặc Ban quản lý.")}
                       />
                     </Action>
                   </>
@@ -226,7 +269,7 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
                           { name: "note", label: "Ghi chú", max: 500 },
                         ]}
                         build={(body) => ({ ...body, action: "APPROVE", version: detail.data?.version })}
-                        onSaved={saved}
+                        onSaved={() => saved("Đã duyệt ngân sách. Marketing có thể tiếp tục công bố, xếp lịch và tạo QR.")}
                       />
                     </Action>
                     <Action title="Từ chối đề xuất">
@@ -237,28 +280,21 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
                         label="Từ chối sự kiện"
                         fields={[{ name: "rejectionReason", label: "Lý do từ chối", type: "textarea", max: 500, required: true }]}
                         build={(body) => ({ ...body, action: "REJECT", version: detail.data?.version })}
-                        onSaved={saved}
+                        onSaved={() => saved("Đã từ chối đề xuất. Lý do được lưu trong hồ sơ.")}
                       />
                     </Action>
                   </>
                 )}
-                <ActivitySchedule
-                  key={`${detailPath}-activities`}
-                  identity={identity}
-                  path={`${detailPath}/activities`}
-                  locationId={detail.data.locationId}
-                  activityFields={activityFields}
-                  canEdit={canMarket && ["PENDING_APPROVAL", "APPROVED"].includes(String(detail.data.status))}
-                />
-                {canMarket && ["APPROVED", "ONGOING"].includes(String(detail.data.status)) && (
-                  <Action title="Tạo mã QR check-in">
-                    <p className="mt-3 text-sm text-ink-soft">Khi tạo mã mới, mã check-in trước đó sẽ hết hiệu lực.</p>
+                {canPublish && currentEvent && !detail.data.publicVisible && (
+                  <Action title="Công bố sự kiện">
+                    <p className="mt-3 text-sm text-ink-soft">Khách sẽ thấy sự kiện, lịch hoạt động và gian hàng công khai trên cổng khách.</p>
                     <MutationForm
                       identity={identity}
-                      path={`${detailPath}/qr-code`}
-                      label="Tạo mã QR"
+                      path={`${detailPath}/publication?version=${detail.data.version}`}
+                      method="PUT"
+                      label="Công bố trên cổng khách"
                       fields={[]}
-                      resultView={(data) => <QrResult data={data} />}
+                      onSaved={() => saved("Đã công bố. Bấm Xem trên cổng khách để kiểm tra.")}
                     />
                   </Action>
                 )}
@@ -275,16 +311,21 @@ export function EventsWorkspace({ identity }: { identity: Identity }) {
                         { name: "incurredAt", label: "Thời điểm phát sinh (giờ Việt Nam)", type: "datetime-local" },
                         description,
                       ]}
-                      onSaved={saved}
+                      onSaved={() => saved("Đã ghi nhận chi phí. Báo cáo đã được cập nhật.")}
                     />
                   </Action>
                 )}
-                {canReport && <Report identity={identity} path={`${detailPath}/report`} key={`${detailPath}-report`} />}
               </div>
+              {(approved || detail.data.status === "PENDING_APPROVAL") && <ActivitySchedule
+                key={`${detailPath}-activities`} identity={identity} path={`${detailPath}/activities`}
+                locationId={detail.data.locationId} activityFields={activityFields}
+                canEdit={canMarket && ["PENDING_APPROVAL", "APPROVED"].includes(String(detail.data.status))}
+              />}
+              {canMarket && currentEvent && <EventQr key={`${detailPath}-qr`} identity={identity} path={`${detailPath}/qr-code`} eventId={selected} event={detail.data} />}
+              {approved && canReport && <Report key={`${detailPath}-report`} identity={identity} path={`${detailPath}/report`} />}
             </>
           )}
         </div>
-      </Modal>
     )}
   </div>;
 }
@@ -307,10 +348,12 @@ function ActivitySchedule({ identity, path, locationId, activityFields, canEdit 
    * Phiên bản: Version 1
    */
   const refresh = () => setRevision((value) => value + 1);
-  return <Action title="Lịch hoạt động">
+  return <section className={panel} aria-label="Lịch hoạt động">
+    <h3 className="font-display text-2xl text-plum">Lịch hoạt động</h3>
     <div className="mt-4 grid gap-3">
       {list.loading && <p role="status" className="text-sm">Đang tải lịch hoạt động…</p>}
       {list.error && <ErrorMessage message={list.error} />}
+      {list.error && <button type="button" className={`${secondary} justify-self-start`} onClick={refresh}>Tải lại lịch</button>}
       {list.data?.length === 0 && <p className="text-sm">Chưa có hoạt động.</p>}
       {list.data?.map((item) => {
         const editPath = `${path}/${item.id}?version=${item.version}`;
@@ -330,7 +373,45 @@ function ActivitySchedule({ identity, path, locationId, activityFields, canEdit 
       {canEdit && <Action title="Thêm hoạt động"><MutationForm identity={identity} path={path} label="Lưu hoạt động"
         defaults={{ locationId }} fields={activityFields} build={(body) => ({ activities: [body] })} onSaved={refresh} /></Action>}
     </div>
-  </Action>;
+  </section>;
+}
+
+/**
+ * Người code: Kiên
+ * Ngày code: 31/10/2026
+ * Chức năng: Thành phần giao diện (Component) event qr hiển thị và xử lý tương tác người dùng
+ * Phiên bản: Version 1
+ */
+function EventQr({ identity, path, eventId, event }: { identity: Identity; path: string; eventId: string; event: Row }) {
+  const [revision, setRevision] = useState(0);
+  const qr = useResource<Row | null>(path, identity, revision, true);
+  /**
+   * Người code: Kiên
+   * Ngày code: 31/10/2026
+   * Chức năng: Hàm xử lý nghiệp vụ refresh
+   * Phiên bản: Version 1
+   */
+  const refresh = () => setRevision((value) => value + 1);
+  return <section className={`${panel} grid gap-4`} aria-label="Mã QR check-in">
+    <h3 className="font-display text-2xl text-plum">Mã QR check-in</h3>
+    {qr.loading && <p role="status" className="text-sm">Đang tải mã QR…</p>}
+    {qr.error && <div className="flex flex-wrap items-center gap-2"><ErrorMessage message={qr.error} />
+      <button className={secondary} onClick={refresh}>Tải lại mã QR</button></div>}
+    {qr.data === null && <div>
+      <p className="text-sm text-ink-soft">Tạo QR rồi in hoặc trình chiếu bảng tại lối vào sự kiện trong giờ đón khách.</p>
+      <MutationForm identity={identity} path={path} fields={[]} label="Tạo mã QR" onSaved={refresh} />
+    </div>}
+    {qr.data && <>
+      <QrResult key={String(qr.data.qrCodeId)} data={qr.data} event={event} />
+      <div className="flex flex-wrap items-center gap-4">
+        <Link className={secondary} href={`/quan-ly?view=assist&event=${eventId}`}>Mở hỗ trợ check-in</Link>
+        <Action title="Thay mã QR">
+          <p className="text-sm text-ink-soft">Mã cũ sẽ ngừng hoạt động. Hãy thay mã tại các điểm đón khách sau khi tạo mã mới.</p>
+          <MutationForm identity={identity} path={path} fields={[]} label="Xác nhận thay mã" onSaved={refresh} />
+        </Action>
+      </div>
+    </>}
+  </section>;
 }
 
 /**
@@ -339,8 +420,12 @@ function ActivitySchedule({ identity, path, locationId, activityFields, canEdit 
  * Chức năng: Thành phần giao diện (Component) qr result hiển thị và xử lý tương tác người dùng
  * Phiên bản: Version 1
  */
-function QrResult({ data }: { data: Row }) {
+function QrResult({ data, event }: { data: Row; event: Row }) {
+  const [copyMessage, setCopyMessage] = useState("");
+  const [posterOpen, setPosterOpen] = useState(false);
   const url = String(data.checkInUrl ?? "");
+  const eventName = String(event.name);
+  const location = String(event.locationDescription ?? "Lối vào sự kiện");
   let image: string | undefined;
   try {
     const qr = qrcode(0, "M");
@@ -350,10 +435,37 @@ function QrResult({ data }: { data: Row }) {
   } catch {
     // Liên kết vẫn dùng được nếu dài hơn dung lượng của mã QR.
   }
+  const poster = image && <div className="mx-auto grid max-w-lg justify-items-center gap-3 bg-white p-4 text-center text-black">
+    <p className="text-lg font-semibold">{eventName}</p>
+    <p className="text-sm">{location} · {date(event.startAt)} – {date(event.endAt)}</p>
+    <h3 className="text-3xl font-bold sm:text-4xl">Quét để check-in</h3>
+    <img src={image} alt={`QR check-in sự kiện ${eventName}`} className="aspect-square w-full max-w-84" />
+    <p className="text-base font-semibold">Mở Camera, quét QR và chạm vào liên kết hiện ra.</p>
+    <p className="text-sm">Cần hỗ trợ? Mời bạn đến quầy đón khách ở lối vào.</p>
+  </div>;
+
   return <>
-    {image && <img src={image} alt="Mã QR để khách quét và check-in" className="h-auto max-w-full rounded border border-green-300" />}
-    <p>Hết hạn {date(data.expiresAt)}</p>
-    <label className="grid gap-1.5">Liên kết dành cho khách<input className="w-full rounded border border-green-300 bg-white px-2 py-1" value={url} readOnly onFocus={(event) => event.currentTarget.select()} /></label>
+    <p className="text-sm text-ink-soft">Đặt bảng QR ở lối vào {location}. Mã có hiệu lực đến {date(data.expiresAt)}.</p>
+    {!image && <ErrorMessage message="Chưa thể tạo hình QR từ liên kết. Kiểm tra cấu hình URL check-in." />}
+    <div className="flex flex-wrap items-center gap-3">
+      {image && <button type="button" className={primary} onClick={() => setPosterOpen(true)}>Trình chiếu hoặc in QR</button>}
+      <a className={secondary} href={url} target="_blank" rel="noreferrer">Mở bản thử với tư cách khách</a>
+      <button type="button" className={secondary} onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(url);
+          setCopyMessage("Đã sao chép. Chia sẻ liên kết cho khách tại điểm đón khách khi cần.");
+        } catch { setCopyMessage("Nhấp chuột phải vào “Mở bản thử với tư cách khách” rồi chọn Sao chép địa chỉ liên kết."); }
+      }}>Sao chép đường dẫn cho khách</button>
+      {copyMessage && <span role="status" className="text-sm">{copyMessage}</span>}
+    </div>
+    {posterOpen && poster && <>
+      <Modal open onClose={() => setPosterOpen(false)} title="Bảng QR tại lối vào"
+        footer={<div className="flex flex-wrap justify-end gap-3">
+          <button type="button" className={secondary} onClick={() => setPosterOpen(false)}>Đóng bảng QR</button>
+          <button type="button" className={primary} onClick={() => window.print()}>In bảng QR</button>
+        </div>}>{poster}</Modal>
+      {createPortal(<div id="check-in-print">{poster}</div>, document.body)}
+    </>}
   </>;
 }
 
@@ -365,12 +477,16 @@ function QrResult({ data }: { data: Row }) {
  */
 function Report({ identity, path }: { identity: Identity; path: string }) {
   const [load, setLoad] = useState(0);
-  const report = useResource<Row>(load ? path : undefined, identity, load);
-  return <Action title="Báo cáo sự kiện">
-    <button className={`${secondary} my-4`} disabled={report.loading} onClick={() => setLoad((value) => value + 1)}>{report.loading ? "Đang tải…" : "Tải báo cáo"}</button>
+  const report = useResource<Row>(path, identity, load);
+  return <section className={`${panel} grid gap-4`} aria-label="Báo cáo sự kiện">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h3 className="font-display text-2xl text-plum">Báo cáo sự kiện</h3>
+      <button className={secondary} disabled={report.loading} onClick={() => setLoad((value) => value + 1)}>{report.loading ? "Đang tải…" : "Cập nhật báo cáo"}</button>
+    </div>
     {report.error && <ErrorMessage message={report.error} />}
     {report.data && <Details data={report.data} columns={[["approvedBudget", "Ngân sách đã duyệt", amount], ["estimatedBudget", "Ngân sách dự kiến", amount],
       ["totalActualExpense", "Tổng chi thực tế", amount], ["budgetVariance", "Chênh lệch ngân sách", amount], ["targetAttendees", "Số khách mục tiêu"],
-      ["actualAttendees", "Số khách đã check-in"], ["attendanceRate", "Tỷ lệ tham gia (%)"], ["roiPercentage", "ROI (%)"], ["roiStatus", "Trạng thái ROI"]]} />}
-  </Action>;
+      ["actualAttendees", "Số khách đã check-in"], ["attendanceRate", "Tỷ lệ tham gia (%)"], ["roiPercentage", "ROI (%)"],
+      ["roiStatus", "Trạng thái ROI", (value) => value === "PENDING_REVENUE" ? "Chưa có doanh thu để tính ROI" : "Chưa đủ dữ liệu"]]} />}
+  </section>;
 }

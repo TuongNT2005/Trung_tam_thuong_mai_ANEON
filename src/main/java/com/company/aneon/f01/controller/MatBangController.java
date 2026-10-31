@@ -42,22 +42,22 @@ import jakarta.validation.Valid;
 public class MatBangController {
 
     private final MatBangService matBangService;
-    /**
-     * Người code: Minh
-     * Ngày code: 26/10/2026
-     * Chức năng: Khởi tạo đối tượng MatBangController và cấu hình các thành phần phụ thuộc cần thiết
-     * Phiên bản: Version 1
-     */
+/**
+ * Người code: Minh
+ * Ngày code: 26/10/2026
+ * Chức năng: Khởi tạo đối tượng MatBangController và cấu hình các thành phần phụ thuộc cần thiết
+ * Phiên bản: Version 1
+ */
 
     public MatBangController(MatBangService matBangService) {
         this.matBangService = matBangService;
     }
-    /**
-     * Người code: Minh
-     * Ngày code: 26/10/2026
-     * Chức năng: Tiếp nhận yêu cầu HTTP GET: tra cứu, tìm kiếm và phân trang dữ liệu theo các bộ lọc điều kiện
-     * Phiên bản: Version 1
-     */
+/**
+ * Người code: Minh
+ * Ngày code: 26/10/2026
+ * Chức năng: Tiếp nhận yêu cầu HTTP GET: tra cứu, tìm kiếm và phân trang dữ liệu theo các bộ lọc điều kiện
+ * Phiên bản: Version 1
+ */
 
     @GetMapping
     @PreAuthorize("hasAuthority('" + RolePermissions.F01_PREMISE_READ + "')")
@@ -70,12 +70,12 @@ public class MatBangController {
         return ApiResponse.ok("Tra cuu mat bang thanh cong",
                 matBangService.list(q, zoneId, status, PageParams.page(page), PageParams.size(size)));
     }
-    /**
-     * Người code: Minh
-     * Ngày code: 26/10/2026
-     * Chức năng: Kiểm tra tính khả dụng và duy nhất của mã mặt bằng trước khi tạo mới
-     * Phiên bản: Version 1
-     */
+/**
+ * Người code: Minh
+ * Ngày code: 26/10/2026
+ * Chức năng: Kiểm tra tính khả dụng và duy nhất của mã mặt bằng trước khi tạo mới
+ * Phiên bản: Version 1
+ */
 
     @GetMapping("/code-availability")
     @PreAuthorize("hasAuthority('" + RolePermissions.F01_PREMISE_READ + "')")
@@ -85,24 +85,24 @@ public class MatBangController {
         return ApiResponse.ok("Kiem tra ma thanh cong",
                 matBangService.checkCodeAvailable(code, excludeId));
     }
-    /**
-     * Người code: Minh
-     * Ngày code: 26/10/2026
-     * Chức năng: Tiếp nhận yêu cầu HTTP GET: thực hiện xử lý nghiệp vụ detail
-     * Phiên bản: Version 1
-     */
+/**
+ * Người code: Minh
+ * Ngày code: 26/10/2026
+ * Chức năng: Tiếp nhận yêu cầu HTTP GET: thực hiện xử lý nghiệp vụ detail
+ * Phiên bản: Version 1
+ */
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('" + RolePermissions.F01_PREMISE_READ + "')")
     public ApiResponse<PremiseDtos.PremiseDetail> detail(@PathVariable UUID id) {
         return ApiResponse.ok("Tra cuu mat bang thanh cong", matBangService.detail(id));
     }
-    /**
-     * Người code: Minh
-     * Ngày code: 26/10/2026
-     * Chức năng: Tiếp nhận yêu cầu HTTP POST: khởi tạo và lưu mới  vào cơ sở dữ liệu
-     * Phiên bản: Version 1
-     */
+/**
+ * Người code: Minh
+ * Ngày code: 26/10/2026
+ * Chức năng: Tiếp nhận yêu cầu HTTP POST: khởi tạo và lưu mới  vào cơ sở dữ liệu
+ * Phiên bản: Version 1
+ */
 
     @PostMapping
     @PreAuthorize("hasAuthority('" + RolePermissions.F01_PREMISE_WRITE + "')")
@@ -112,12 +112,12 @@ public class MatBangController {
         return ResponseEntity.status(201)
                 .body(ApiResponse.created("Them mat bang thanh cong", result));
     }
-    /**
-     * Người code: Minh
-     * Ngày code: 26/10/2026
-     * Chức năng: Tiếp nhận yêu cầu HTTP PUT: cập nhật và đồng bộ thông tin 
-     * Phiên bản: Version 1
-     */
+/**
+ * Người code: Minh
+ * Ngày code: 26/10/2026
+ * Chức năng: Tiếp nhận yêu cầu HTTP PUT: cập nhật và đồng bộ thông tin 
+ * Phiên bản: Version 1
+ */
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('" + RolePermissions.F01_PREMISE_WRITE + "')")
@@ -125,12 +125,12 @@ public class MatBangController {
                                                         @Valid @RequestBody PremiseDtos.UpdatePremiseRequest request) {
         return ApiResponse.ok("Cap nhat mat bang thanh cong", matBangService.update(id, request));
     }
-    /**
-     * Người code: Minh
-     * Ngày code: 26/10/2026
-     * Chức năng: Tiếp nhận yêu cầu HTTP PUT: cập nhật và đồng bộ thông tin cate
-     * Phiên bản: Version 1
-     */
+/**
+ * Người code: Minh
+ * Ngày code: 26/10/2026
+ * Chức năng: Tiếp nhận yêu cầu HTTP PUT: cập nhật và đồng bộ thông tin cate
+ * Phiên bản: Version 1
+ */
 
     @PutMapping("/{id}/location")
     @PreAuthorize("hasAuthority('" + RolePermissions.F01_PREMISE_WRITE + "')")
