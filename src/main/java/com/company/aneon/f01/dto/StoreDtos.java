@@ -1,6 +1,7 @@
 package com.company.aneon.f01.dto;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import com.company.aneon.f01.constant.StoreStatus;
@@ -95,6 +96,6 @@ public final class StoreDtos {
     public record StoreDetail(UUID id, String code, String name, UUID premiseId, String premiseCode,
                               BigDecimal area, UUID categoryId, String categoryName, UUID locationId,
                               StoreStatus status, String operatingHours, String description,
-                              boolean publicVisible, long version) {
+                              boolean publicVisible, long version, List<String> allowedStatuses) {
     }
 }

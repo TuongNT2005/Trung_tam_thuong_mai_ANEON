@@ -13,7 +13,6 @@ const emptyRecords: ReferenceOptionMaps = {
   events: {},
   vouchers: {},
   promotions: {},
-  customers: {},
   customerVouchers: {},
   invoices: {},
   contracts: {},
@@ -24,12 +23,14 @@ type ReferenceContextValue = {
   options: ReferenceOptionMaps;
   raw?: ReferenceOptionsData;
   loading: boolean;
+  error: string;
   refresh: () => void;
 };
 
 const ReferenceContext = createContext<ReferenceContextValue>({
   options: emptyRecords,
   loading: false,
+  error: "",
   refresh: () => {},
 });
 
@@ -39,14 +40,17 @@ const ReferenceContext = createContext<ReferenceContextValue>({
  * Chức năng: Thành phần giao diện (Component) reference provider hiển thị và xử lý tương tác người dùng
  * Phiên bản: Version 1
  */
-export function ReferenceProvider({ identity, children }: { identity: Identity; children: ReactNode }) {
+export function ReferenceProvider({ identity, children, enabled = true }: { identity: Identity; children: ReactNode; enabled?: boolean }) {
   const [data, setData] = useState<ReferenceOptionsData>();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     setLoading(true);
+    setError("");
     request<ReferenceOptionsData>("shared/reference-options", { identity })
       .then((res) => {
         if (active) {
@@ -55,11 +59,13 @@ export function ReferenceProvider({ identity, children }: { identity: Identity; 
         }
       })
       .catch((err) => {
-        console.error("Khong tai duoc danh sach tham chieu:", err);
-        if (active) setLoading(false);
+        if (active) {
+          setError(`Không tải được danh mục dùng trong biểu mẫu. ${(err as Error).message}`);
+          setLoading(false);
+        }
       });
     return () => { active = false; };
-  }, [identity, revision]);
+  }, [enabled, identity, revision]);
 
   const options: ReferenceOptionMaps = {
     zones: toOptionRecord(data?.zones),
@@ -71,7 +77,6 @@ export function ReferenceProvider({ identity, children }: { identity: Identity; 
     events: toOptionRecord(data?.events),
     vouchers: toOptionRecord(data?.vouchers),
     promotions: toOptionRecord(data?.promotions),
-    customers: toOptionRecord(data?.customers),
     customerVouchers: toOptionRecord(data?.customerVouchers),
     invoices: toOptionRecord(data?.invoices),
     contracts: toOptionRecord(data?.contracts),
@@ -79,7 +84,7 @@ export function ReferenceProvider({ identity, children }: { identity: Identity; 
   };
 
   return (
-    <ReferenceContext.Provider value={{ options, raw: data, loading, refresh: () => setRevision((r) => r + 1) }}>
+    <ReferenceContext.Provider value={{ options, raw: data, error, loading, refresh: () => setRevision((r) => r + 1) }}>
       {children}
     </ReferenceContext.Provider>
   );

@@ -8,24 +8,42 @@
  */
 export type Identity =
   | { mode: "jwt"; token: string }
-  | { mode: "local"; actorId: string; role: string; zones: string };
+  | { mode: "local"; actorId: string; role: string; zones: string; label?: string };
+
+export type CheckInContext = {
+  name: string;
+  location?: string;
+  startAt?: string;
+  endAt?: string;
+  state: "READY" | "UPCOMING" | "ENDED" | "INACTIVE" | "NO_QR" | "EXPIRED";
+};
+
+export type PublicStore = {
+  code: string;
+  name: string;
+  category?: string;
+  floor: string;
+  zone: string;
+  location?: string;
+  operatingHours?: string;
+  description?: string;
+};
 
 export type Page<T> = { content: T[]; page: number; size: number; totalElements: number };
 export type OptionItem = { id: string; label: string; zoneId?: string };
 export type ReferenceOptionsData = {
-  zones: OptionItem[];
+  zones: (OptionItem & { floorId: string })[];
   locations: OptionItem[];
   categories: OptionItem[];
-  premises: OptionItem[];
+  premises: (OptionItem & { remainingArea?: number })[];
   stores: OptionItem[];
   floors: OptionItem[];
   events: OptionItem[];
   vouchers: OptionItem[];
   promotions: OptionItem[];
-  customers: OptionItem[];
-  customerVouchers: OptionItem[];
-  invoices: OptionItem[];
-  contracts: OptionItem[];
+  customerVouchers: (OptionItem & { customerId: string })[];
+  invoices: (OptionItem & { customerId: string; verified: boolean })[];
+  contracts: (OptionItem & { premiseId?: string })[];
   staff: OptionItem[];
 };
 export type ReferenceOptionMaps = {
@@ -38,7 +56,6 @@ export type ReferenceOptionMaps = {
   events: Record<string, string>;
   vouchers: Record<string, string>;
   promotions: Record<string, string>;
-  customers: Record<string, string>;
   customerVouchers: Record<string, string>;
   invoices: Record<string, string>;
   contracts: Record<string, string>;
@@ -60,6 +77,7 @@ export function toOptionRecord(items?: OptionItem[]): Record<string, string> {
   return map;
 }
 type Envelope<T> = {
+  code?: number;
   data?: T;
   message?: string;
   errors?: { field: string; message: string }[];
@@ -90,6 +108,7 @@ export async function request<T>(path: string, options: {
   method?: string;
   body?: unknown;
   signal?: AbortSignal;
+  nullable?: boolean;
 } = {}): Promise<T> {
   const { identity, method, body, signal } = options;
   const headers = identityHeaders(identity);
@@ -101,6 +120,9 @@ export async function request<T>(path: string, options: {
     body: multipart ? body : body === undefined ? undefined : JSON.stringify(body),
   });
   const envelope: Envelope<T> | null = await response.json().catch(() => null);
+  if (options.nullable && response.ok && envelope?.code === 200 && envelope.data === undefined) {
+    return null as T;
+  }
   if (!response.ok || envelope?.data === undefined) {
     const fields = envelope?.errors?.map(({ field, message }) => `${field} — ${message}`).join(". ");
     const message = {
@@ -154,4 +176,21 @@ const dateFormat = new Intl.DateTimeFormat("vi-VN", {
  */
 export function formatDate(value?: string) {
   return value ? dateFormat.format(new Date(value)) : "—";
+}
+
+/**
+ * Người code: Tường
+ * Ngày code: 22/10/2026
+ * Chức năng: Hàm xử lý nghiệp vụ check in status text
+ * Phiên bản: Version 1
+ */
+export function checkInStatusText(context: CheckInContext) {
+  switch (context.state) {
+    case "UPCOMING": return `Check-in mở lúc ${formatDate(context.startAt)}.`;
+    case "ENDED": return "Sự kiện đã kết thúc.";
+    case "INACTIVE": return "Sự kiện chưa mở check-in.";
+    case "NO_QR": return "Chưa có mã QR. Liên hệ Marketing để chuẩn bị mã check-in.";
+    case "EXPIRED": return "Mã QR đã hết hạn. Vui lòng liên hệ quầy hỗ trợ.";
+    case "READY": return `Đang nhận check-in đến ${formatDate(context.endAt)}.`;
+  }
 }

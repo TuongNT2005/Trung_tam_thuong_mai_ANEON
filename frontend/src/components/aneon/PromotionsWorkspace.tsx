@@ -10,6 +10,7 @@
  * ==============================================================================
  */
 import { useState } from "react";
+import Link from "next/link";
 import { formatDate, type Identity } from "@/lib/aneon-api";
 import { ErrorMessage, panel, secondary } from "./Ui";
 import { useReferences } from "./ReferenceContext";
@@ -35,13 +36,17 @@ const minimum: FormField = { name: "minimumInvoiceAmount", label: "Giá trị h�
 const discountLimit: FormField = { name: "maximumDiscount", label: "Mức giảm tối đa (₫)", type: "number", min: 0, placeholder: "Ví dụ: 100000" };
 
 /**
+ * Người phụ trách code: Kiên | Ngày cập nhật local: 2026-11-17 | Phiên bản: v1.1.
+ * Chức năng: tạo khuyến mãi, phát và đổi voucher với lựa chọn phụ thuộc.
+ */
+/**
  * Người code: Kiên
  * Ngày code: 31/10/2026
  * Chức năng: Thành phần giao diện (Component) promotions workspace hiển thị và xử lý tương tác người dùng
  * Phiên bản: Version 1
  */
 export function PromotionsWorkspace({ identity, view }: { identity: Identity; view: "promotions" | "vouchers" }) {
-  const { options: refOptions, refresh: refreshRef } = useReferences();
+  const { options: refOptions, raw: references, refresh: refreshRef } = useReferences();
   const [type, setType] = useState<PromotionType>("DISCOUNT");
   const [voucherDiscountType, setVoucherDiscountType] = useState<VoucherDiscountType>("PERCENTAGE");
   const [promotionId, setPromotionId] = useState("");
@@ -52,14 +57,42 @@ export function PromotionsWorkspace({ identity, view }: { identity: Identity; vi
 
   const stores: FormField = { name: "participatingStoreIds", label: "Gian hàng áp dụng", type: "list", options: refOptions.stores };
   const voucher: FormField = { name: "voucherId", label: "Mẫu voucher", type: "uuid", required: true, options: refOptions.vouchers };
-  const customer: FormField = { name: "customerId", label: "Khách mua sắm", type: "uuid", required: true, options: refOptions.customers };
-  const invoice: FormField = { name: "invoiceId", label: "Hóa đơn mua hàng", type: "uuid", required: true, options: refOptions.invoices };
+  const customer: FormField = { name: "customerId", label: "Tìm khách mua sắm", type: "customer", required: true };
+  const invoice: FormField = { name: "invoiceId", label: "Hóa đơn mua hàng", type: "uuid", required: true,
+    options: Object.fromEntries((references?.invoices ?? []).filter((item) => item.verified).map(({ id, label }) => [id, label])),
+    helpText: "Chọn hóa đơn đã xác thực, thuộc đúng khách và gian hàng áp dụng." };
   const promotion: FormField = { name: "promotionId", label: "Chương trình khuyến mãi", type: "uuid", required: true, options: refOptions.promotions };
 
   const hasCustomerVouchers = Object.keys(refOptions.customerVouchers).length > 0;
   const voucherInstanceField: FormField = hasCustomerVouchers
     ? { name: "customerVoucherId", label: "Phiếu ưu đãi của khách", type: "uuid", options: refOptions.customerVouchers }
     : { name: "customerVoucherId", label: "Mã voucher của khách (UUID)", type: "uuid", placeholder: "Ví dụ: c0000000-0000-4000-8000-000000000001" };
+
+  /**
+   * Người code: Kiên
+   * Ngày code: 31/10/2026
+   * Chức năng: Hàm xử lý nghiệp vụ invoices for
+   * Phiên bản: Version 1
+   */
+  function invoicesFor(customerId: string) {
+    const matches = (references?.invoices ?? []).filter((item) => item.verified && item.customerId === customerId);
+    return { options: Object.fromEntries(matches.map(({ id, label }) => [id, label])),
+      emptyLabel: matches.length ? "— Chọn hóa đơn —" : "Khách chưa có hóa đơn đã xác thực" };
+  }
+
+  const applyInvoice: FormField = { ...invoice, dependsOn: "customerId", forSelection: (id) => id ? invoicesFor(id)
+    : { options: {}, disabled: true, emptyLabel: "Chọn khách trước" } };
+  const redeemInvoice: FormField = { ...invoice, dependsOn: "customerVoucherId", forSelection: (id) => {
+    if (!id) return { options: {}, disabled: true, emptyLabel: "Chọn phiếu ưu đãi trước" };
+    const customerId = references?.customerVouchers.find((item) => item.id === id)?.customerId;
+    return customerId ? invoicesFor(customerId) : {};
+  } };
+  const applyVoucher: FormField = hasCustomerVouchers ? { ...voucherInstanceField, dependsOn: "customerId", forSelection: (id) => ({
+    options: Object.fromEntries((references?.customerVouchers ?? []).filter((item) => item.customerId === id)
+      .map((item) => [item.id, item.label])),
+    disabled: !id,
+    emptyLabel: id ? "Không chọn phiếu" : "Chọn khách trước",
+  }) } : voucherInstanceField;
 
   const typeFields: Record<PromotionType, FormField[]> = {
     DISCOUNT: [
@@ -148,6 +181,7 @@ export function PromotionsWorkspace({ identity, view }: { identity: Identity; vi
 
     return (
       <div className={`${panel} grid gap-3 sm:grid-cols-2 lg:grid-cols-3`}>
+        <p className="text-sm text-ink-soft sm:col-span-2 lg:col-span-3">Ban quản lý tạo mẫu. Marketing hoặc Vận hành phát phiếu cho khách và xác nhận sử dụng với hóa đơn tại quầy.</p>
         {allowed(identity, "MANAGEMENT") && (
           <Action title="Tạo mẫu voucher">
             <div className="mt-4 max-w-sm">
@@ -177,14 +211,13 @@ export function PromotionsWorkspace({ identity, view }: { identity: Identity; vi
               })}
               onSaved={() => refreshRef()}
               resultView={(data) => (
-                <Details
+                <><Details
                   data={data}
                   columns={[
-                    ["id", "Mã hệ thống (ID)"],
                     ["code", "Mã voucher"],
                     ["name", "Tên voucher"],
                   ]}
-                />
+                /><p>Marketing hoặc Vận hành có thể dùng mã trên để tìm mẫu và phát phiếu.</p></>
               )}
             />
           </Action>
@@ -209,14 +242,13 @@ export function PromotionsWorkspace({ identity, view }: { identity: Identity; vi
                 build={({ voucherId: _voucher, ...body }) => body}
                 onSaved={() => refreshRef()}
                 resultView={(data) => (
-                  <Details
+                  <><Details
                     data={data}
                     columns={[
-                      ["id", "UUID voucher của khách"],
                       ["voucherCode", "Mã voucher"],
                       ["duplicate", "Đã phát trước đó"],
                     ]}
-                  />
+                  /><Link className="font-semibold text-magenta-deep underline" href="/voucher-cua-toi">Mở ví với tư cách khách</Link></>
                 )}
               />
             </Action>
@@ -225,7 +257,7 @@ export function PromotionsWorkspace({ identity, view }: { identity: Identity; vi
                 identity={identity}
                 path={(data) => `f10/voucher-instances/${encodeURIComponent(String(data.customerVoucherId))}/redemptions`}
                 label="Xác nhận sử dụng"
-                fields={[{ ...voucherInstanceField, required: true }, invoice]}
+                fields={[{ ...voucherInstanceField, required: true }, redeemInvoice]}
                 build={({ customerVoucherId: _voucher, ...body }) => ({
                   ...body,
                   idempotencyKey: `RED-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -235,7 +267,7 @@ export function PromotionsWorkspace({ identity, view }: { identity: Identity; vi
                   <Details
                     data={data}
                     columns={[
-                      ["status", "Trạng thái"],
+                      ["status", "Trạng thái", (value) => value === "USED" ? "Đã sử dụng" : String(value)],
                       ["redeemedAt", "Thời gian sử dụng", (value) => formatDate(value as string)],
                     ]}
                   />
@@ -346,7 +378,7 @@ export function PromotionsWorkspace({ identity, view }: { identity: Identity; vi
             identity={identity}
             path={(data) => `f10/promotions/${encodeURIComponent(String(data.promotionId))}/applications`}
             label="Áp dụng khuyến mãi"
-            fields={[promotion, invoice, customer, voucherInstanceField]}
+            fields={[promotion, customer, applyInvoice, applyVoucher]}
             build={({ promotionId: _promotion, ...body }) => ({
               ...body,
               idempotencyKey: `APP-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,

@@ -187,6 +187,16 @@ public final class PromotionDtos {
     /**
      * Người code: Tường
      * Ngày code: 22/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ wallet voucher
+     * Phiên bản: Version 1
+     */
+
+    public record WalletVoucher(UUID id, String code, String name, VoucherDiscountType discountType, BigDecimal value,
+                                BigDecimal maximumDiscount, BigDecimal minimumInvoiceAmount, Instant validFrom,
+                                Instant expiresAt, String status, List<String> storeCodes) {}
+    /**
+     * Người code: Tường
+     * Ngày code: 22/10/2026
      * Chức năng: Thực hiện xử lý nghiệp vụ redeem voucher request
      * Phiên bản: Version 1
      */

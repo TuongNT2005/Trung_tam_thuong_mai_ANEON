@@ -9,17 +9,39 @@
  * Phiên bản: Version 1
  * ==============================================================================
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { query, request, UUID_PATTERN, type Identity, type Page } from "@/lib/aneon-api";
 import { ErrorMessage, Field, input, Pagination, panel, primary, secondary } from "./Ui";
+import { CustomerPicker } from "./CustomerPicker";
 
 export type Row = Record<string, unknown>;
-export type Column = [name: string, label: string, format?: (value: unknown) => ReactNode];
+export type Column = [name: string, label: string, format?: (value: unknown, record: Row) => ReactNode];
 export type FormField = {
-  name: string; label: string; type?: "uuid" | "number" | "date" | "datetime-local" | "textarea" | "checkbox" | "list";
+  name: string; label: string; type?: "uuid" | "number" | "date" | "datetime-local" | "textarea" | "checkbox" | "list" | "customer";
   options?: Record<string, string>; required?: boolean; min?: number; max?: number; step?: string; pattern?: string;
   placeholder?: string; helpText?: string; autoUpper?: boolean;
+  disabled?: boolean; emptyLabel?: string;
+  dependsOn?: string;
+  forSelection?: (value: string) => Partial<FormField>;
 };
+
+/**
+ * Người code: Kiên
+ * Ngày code: 31/10/2026
+ * Chức năng: Hàm xử lý nghiệp vụ dependent control
+ * Phiên bản: Version 1
+ */
+function dependentControl(field: FormField, choices: Record<string, string>, defaults?: Row) {
+  const parent = field.dependsOn;
+  const selection = parent ? choices[parent] ?? String(defaults?.[parent] ?? "") : "";
+  const resolved = { ...field, ...field.forSelection?.(selection) };
+  const value = parent && field.options && Object.hasOwn(choices, parent) ? undefined : defaults?.[field.name];
+  return {
+    field: resolved,
+    value,
+    key: field.options ? `${field.name}:${selection}:${value != null && Object.hasOwn(resolved.options ?? {}, String(value))}` : field.name,
+  };
+}
 
 /**
  * Người code: Kiên
@@ -64,21 +86,21 @@ export function Details({ data, columns }: { data: Row; columns: Column[] }) {
   return <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
     {columns.map(([key, label, format]) => <div key={key} className="min-w-0 border-b border-cream-line pb-2">
       <dt className="text-xs font-semibold text-ink-soft">{label}</dt>
-      <dd className="mt-1 text-sm wrap-break-word">{format ? format(data[key]) : display(data[key])}</dd>
+      <dd className="mt-1 text-sm wrap-break-word">{format ? format(data[key], data) : display(data[key])}</dd>
     </div>)}
   </dl>;
 }
 
-export function useResource<T>(path: string | undefined, identity: Identity, revision = 0) {
+export function useResource<T>(path: string | undefined, identity?: Identity, revision = 0, nullable = false) {
   const [result, setResult] = useState<{ path: string; revision: number; data?: T; error?: string }>();
   useEffect(() => {
     if (!path) return;
     const controller = new AbortController();
-    request<T>(path, { identity, signal: controller.signal })
+    request<T>(path, { identity, signal: controller.signal, nullable })
       .then((data) => { if (!controller.signal.aborted) setResult({ path, revision, data }); })
       .catch((err: Error) => { if (!controller.signal.aborted) setResult({ path, revision, error: err.message }); });
     return () => controller.abort();
-  }, [path, identity, revision]);
+  }, [path, identity, revision, nullable]);
   const current = result?.path === path && result?.revision === revision ? result : undefined;
   return { data: current?.data, error: current?.error, loading: Boolean(path && !current) };
 }
@@ -89,11 +111,13 @@ export function useResource<T>(path: string | undefined, identity: Identity, rev
  * Chức năng: Thành phần giao diện (Component) records hiển thị và xử lý tương tác người dùng
  * Phiên bản: Version 1
  */
-export function Records({ path, identity, revision, columns, filters, onSelect, extra }: {
+export function Records({ path, identity, revision, columns, filters, onSelect, extra, initialFilters = {} }: {
   path: string; identity: Identity; revision: number; columns: Column[]; filters: FormField[];
   onSelect?: (id: string) => void; extra?: (data: Page<Row> & Row) => ReactNode;
+  initialFilters?: Record<string, string>;
 }) {
-  const [params, setParams] = useState<Record<string, string>>({});
+  const [params, setParams] = useState(initialFilters);
+  const [choices, setChoices] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
   const [retry, setRetry] = useState(0);
   const { data, error, loading } = useResource<Page<Row> & Row>(`${path}?${query({ ...params, page, size: 10 })}`, identity, revision + retry);
@@ -104,7 +128,12 @@ export function Records({ path, identity, revision, columns, filters, onSelect, 
       setParams(Object.fromEntries(Array.from(new FormData(event.currentTarget), ([name, value]) => [name, String(value).trim()])));
       setRetry((value) => value + 1);
     }}>
-      {filters.map((field) => <div className="min-w-40 flex-1" key={field.name}><Control field={field} /></div>)}
+      {filters.map((field) => {
+        const control = dependentControl(field, choices, initialFilters);
+        return <div className="min-w-40 flex-1" key={field.name}><Control key={control.key} field={control.field} value={control.value}
+          onChange={filters.some((item) => item.dependsOn === field.name)
+            ? (value) => setChoices((previous) => ({ ...previous, [field.name]: value })) : undefined} /></div>;
+      })}
       <button className={primary} type="submit">Lọc kết quả</button>
     </form>
     {loading && <p role="status" className="text-sm text-ink-soft">Đang tải dữ liệu…</p>}
@@ -116,7 +145,7 @@ export function Records({ path, identity, revision, columns, filters, onSelect, 
         <table className="w-full border-collapse text-left text-sm">
           <thead className="bg-cream text-ink-soft"><tr>{columns.map(([key, label]) => <th key={key} scope="col" className="px-3 py-3 font-semibold">{label}</th>)}{onSelect && <th scope="col" className="px-3 py-3">Thao tác</th>}</tr></thead>
           <tbody>{data.content.map((record, index) => <tr key={String(record.id ?? index)} className="border-b border-cream-line">
-            {columns.map(([key, , format]) => <td key={key} className="max-w-72 px-3 py-3 wrap-break-word">{format ? format(record[key]) : display(record[key])}</td>)}
+            {columns.map(([key, , format]) => <td key={key} className="max-w-72 px-3 py-3 wrap-break-word">{format ? format(record[key], record) : display(record[key])}</td>)}
             {onSelect && <td className="px-3 py-3"><button className="whitespace-nowrap font-semibold text-magenta-deep underline-offset-4 hover:underline" onClick={() => onSelect(String(record.id))} aria-label={`Xem chi tiết ${record.name ?? record.code}`}>Chi tiết</button></td>}
           </tr>)}</tbody>
         </table>
@@ -150,10 +179,11 @@ export function Control({ field, value, onChange }: { field: FormField; value?: 
     placeholder: field.placeholder || (type === "list" ? "Phân cách bằng dấu phẩy" : undefined),
   };
   return <Field label={label}>
-    {options ? <select {...defaults} onChange={(event) => onChange?.(event.target.value)}>
-      <option value="" disabled={required}>{required ? "— Vui lòng chọn —" : "Tất cả / Không chọn"}</option>{selectOptions(options)}
+    {options ? <select {...defaults} disabled={field.disabled} onChange={(event) => onChange?.(event.target.value)}>
+      <option value="" disabled={required}>{field.emptyLabel ?? (required ? "— Vui lòng chọn —" : "Tất cả / Không chọn")}</option>{selectOptions(options)}
     </select> : type === "textarea" ? <textarea {...defaults} maxLength={max} rows={3} /> : <input {...defaults}
       type={type === "uuid" || type === "list" || !type ? "text" : type}
+      disabled={field.disabled}
       pattern={type === "uuid" ? UUID_PATTERN : pattern} min={min} max={type === "number" ? max : undefined}
       maxLength={!type || type === "list" ? max : undefined} step={step}
       onInput={field.autoUpper ? (event) => { event.currentTarget.value = event.currentTarget.value.toUpperCase(); } : undefined}
@@ -348,6 +378,7 @@ export function MutationForm({ identity, path, method = "POST", fields, defaults
   const [result, setResult] = useState<Row>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [choices, setChoices] = useState<Record<string, string>>({});
 
   /**
    * Người code: Kiên
@@ -370,7 +401,9 @@ export function MutationForm({ identity, path, method = "POST", fields, defaults
         const rawValues = values.getAll(name).map((v) => String(v).trim()).filter(Boolean);
         let value = rawValues.length > 0 ? rawValues[0] : "";
         if (autoUpper) value = value.toUpperCase();
-        if (required && !value && type !== "checkbox") throw new Error("Vui lòng điền đủ các trường bắt buộc.");
+        if (required && !value && type !== "checkbox") {
+          throw new Error(type === "customer" ? "Chọn một khách trong kết quả tìm kiếm." : "Vui lòng điền đủ các trường bắt buộc.");
+        }
         if (type === "checkbox") data[name] = values.has(name);
         else if (type === "list") {
           data[name] = rawValues.length > 1 ? rawValues : (value ? value.split(",").map((item) => item.trim()).filter(Boolean) : []);
@@ -382,7 +415,7 @@ export function MutationForm({ identity, path, method = "POST", fields, defaults
       }
       const endpoint = typeof path === "function" ? path(data) : path;
       const saved = await request<Row>(endpoint, { identity, method, body: build ? build(data) : data });
-      if (resetAfterSave) form.reset();
+      if (resetAfterSave) { form.reset(); setChoices({}); }
       setResult(saved);
       onSaved?.(saved);
     } catch (err) {
@@ -394,7 +427,15 @@ export function MutationForm({ identity, path, method = "POST", fields, defaults
 
   return <form className="mt-4 grid gap-4" onSubmit={submit} aria-busy={busy}>
     {fields.length > 0 && <fieldset disabled={busy} className="grid gap-4 sm:grid-cols-2">
-      {fields.map((field) => <Control key={field.name} field={field} value={defaults?.[field.name]} />)}
+      {fields.map((field) => {
+        const update = fields.some((item) => item.dependsOn === field.name)
+          ? (value: string) => setChoices((previous) => ({ ...previous, [field.name]: value })) : undefined;
+        const control = dependentControl(field, choices, defaults);
+        return field.type === "customer"
+          ? <div key={field.name} className="sm:col-span-2"><CustomerPicker identity={identity} name={field.name} label={field.label}
+            onSelect={(customer) => update?.(customer?.id ?? "")} /></div>
+          : <Control key={control.key} field={control.field} value={control.value} onChange={update} />;
+      })}
     </fieldset>}
     <button type="submit" disabled={busy} className={`${primary} justify-self-start`}>{busy ? "Đang xử lý…" : label}</button>
     {error && <ErrorMessage message={error} />}
@@ -416,7 +457,6 @@ export function Modal({
   title,
   children,
   maxWidth = "max-w-2xl",
-  zIndex = "z-50",
   footer,
 }: {
   open: boolean;
@@ -424,34 +464,35 @@ export function Modal({
   title: ReactNode;
   children: ReactNode;
   maxWidth?: string;
-  zIndex?: string;
   footer?: ReactNode;
 }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
-    if (!open) return;
-    /**
-     * Người code: Kiên
-     * Ngày code: 31/10/2026
-     * Chức năng: Hàm xử lý sự kiện tương tác người dùng khi key down
-     * Phiên bản: Version 1
-     */
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+    const dialog = dialogRef.current;
+    if (!open || !dialog) return;
+    const opener = document.activeElement;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
-    <div
-      className={`fixed inset-0 ${zIndex} flex items-center justify-center p-3 sm:p-5 bg-ink/60 backdrop-blur-xs`}
+    <dialog ref={dialogRef} aria-labelledby={titleId}
+      className={`fixed inset-0 m-auto w-[calc(100%_-_1.5rem)] ${maxWidth} overflow-visible bg-transparent backdrop:bg-ink/60 backdrop:backdrop-blur-xs`}
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
-      role="dialog"
-      aria-modal="true"
     >
       <div
         className={`relative flex max-h-[92vh] w-full ${maxWidth} flex-col rounded-2xl bg-white border border-cream-line shadow-2xl overflow-hidden`}
@@ -459,9 +500,9 @@ export function Modal({
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-cream-line bg-cream/50 px-5 py-4">
-          <div className="font-display text-lg sm:text-xl font-bold text-plum flex items-center gap-2">
+          <h2 id={titleId} className="font-display text-lg sm:text-xl font-bold text-plum flex items-center gap-2">
             {title}
-          </div>
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -493,7 +534,7 @@ export function Modal({
           )}
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -559,7 +600,7 @@ export function Action({
         </span>
       </button>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={title} maxWidth={maxWidth} zIndex="z-[60]">
+      <Modal open={open} onClose={() => setOpen(false)} title={title} maxWidth={maxWidth}>
         {children}
       </Modal>
     </>

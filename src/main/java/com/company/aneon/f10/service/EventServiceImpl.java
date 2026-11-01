@@ -11,6 +11,8 @@ package com.company.aneon.f10.service;
  */
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -48,6 +50,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * F10UC01.1, 01.2, 01.5 + chi tiet/chi phi bo tro. Trang thai de xuat:
  * tao la gui -> PENDING_APPROVAL (D0004); chi pending duoc duyet/tu choi.
+ * Người phụ trách code: Bảo | Ngày cập nhật local: 2026-11-17 | Phiên bản: v1.1.
+ * Chức năng: nối vòng đời đề xuất, phê duyệt và công bố sự kiện F10.
  */
 @Service
 public class EventServiceImpl implements EventService {
@@ -165,7 +169,9 @@ public class EventServiceImpl implements EventService {
      */
 
     private void saveEventDetails(SuKien event, EventDtos.CreateEventProposalRequest request, UUID actorId) {
-        if (!request.startAt().isBefore(request.endAt())) {
+        Instant startAt = request.startAt().truncatedTo(ChronoUnit.MICROS);
+        Instant endAt = request.endAt().truncatedTo(ChronoUnit.MICROS);
+        if (!startAt.isBefore(endAt)) {
             throw ApiException.validation("endAt", "Thoi gian ket thuc phai sau thoi gian bat dau");
         }
 
@@ -182,8 +188,8 @@ public class EventServiceImpl implements EventService {
         event.setName(request.name().trim());
         event.setType(request.type());
         event.setLocation(viTriReference(request.locationId()));
-        event.setStartAt(request.startAt());
-        event.setEndAt(request.endAt());
+        event.setStartAt(startAt);
+        event.setEndAt(endAt);
         event.setEstimatedBudget(request.estimatedBudget());
         event.setTargetAttendees(request.targetAttendees());
         event.setPublicVisible(Boolean.TRUE.equals(request.publicVisible()));
@@ -288,10 +294,41 @@ public class EventServiceImpl implements EventService {
             }
             default -> throw ApiException.validation("action", "Hanh dong phai la APPROVE hoac REJECT");
         }
-        suKienRepository.save(event);
+        suKienRepository.saveAndFlush(event);
 
         EventApprovalNotification.of(event.getId(), event.getProposedBy(), action)
                 .publishWith(eventPublisher);
+        return toDetail(event);
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ publish
+     * Phiên bản: Version 1
+     */
+
+    @Override
+    @Transactional
+    public EventDtos.EventDetail publish(UUID eventId, long version) {
+        SuKien event = suKienRepository.findWithLockById(eventId)
+                .filter(item -> item.getArchivedAt() == null)
+                .orElseThrow(() -> ApiException.notFound("Sự kiện", eventId));
+        EventAccess.requireInScope(event, accessScopePort);
+        if (!requireActor().equals(event.getProposedBy())) {
+            throw ApiException.forbidden("Chỉ người lập sự kiện mới có thể công bố.");
+        }
+        if ((event.getStatus() != EventStatus.APPROVED && event.getStatus() != EventStatus.ONGOING)
+                || event.getEndAt() == null || !Instant.now(clock).isBefore(event.getEndAt())) {
+            throw ApiException.conflict("Chỉ có thể công bố sự kiện đã duyệt và chưa kết thúc.");
+        }
+        if (event.isPublicVisible()) {
+            return toDetail(event);
+        }
+        if (version != event.getVersion()) {
+            throw ApiException.conflict("Hồ sơ đã thay đổi. Hãy tải lại và công bố lại.");
+        }
+        event.setPublicVisible(true);
+        suKienRepository.flush();
         return toDetail(event);
     }
     /**
@@ -317,7 +354,8 @@ public class EventServiceImpl implements EventService {
 
         List<HoatDongSuKien> created = new ArrayList<>();
         Set<UUID> lockedLocations = new LinkedHashSet<>();
-        for (EventDtos.CreateActivityRequest item : items) {
+        for (EventDtos.CreateActivityRequest requested : items) {
+            EventDtos.CreateActivityRequest item = normalizeActivityTimes(requested);
             validateActivity(event, item);
             // Khoa vi tri dung chung mot lan per location truoc khi kiem tra/luu
             if (lockedLocations.add(item.locationId())) {
@@ -370,12 +408,24 @@ public class EventServiceImpl implements EventService {
     @Transactional
     public EventDtos.ActivityItem updateActivity(UUID eventId, UUID activityId, long version, EventDtos.CreateActivityRequest request) {
         HoatDongSuKien activity = requireEditableActivity(eventId, activityId, version);
-        validateActivity(activity.getEvent(), request);
-        lockScheduleLocation(request.locationId());
-        assertScheduleFree(request, activityId);
-        fillActivity(activity, request);
+        EventDtos.CreateActivityRequest item = normalizeActivityTimes(request);
+        validateActivity(activity.getEvent(), item);
+        lockScheduleLocation(item.locationId());
+        assertScheduleFree(item, activityId);
+        fillActivity(activity, item);
         hoatDongRepository.flush();
         return toActivity(activity);
+    }
+    /**
+     * Người code: Bảo
+     * Ngày code: 24/10/2026
+     * Chức năng: Thực hiện xử lý nghiệp vụ normalize activity times
+     * Phiên bản: Version 1
+     */
+
+    private static EventDtos.CreateActivityRequest normalizeActivityTimes(EventDtos.CreateActivityRequest item) {
+        return new EventDtos.CreateActivityRequest(item.name(), item.startAt().truncatedTo(ChronoUnit.MICROS),
+                item.endAt().truncatedTo(ChronoUnit.MICROS), item.locationId(), item.personInCharge(), item.description());
     }
     /**
      * Người code: Bảo

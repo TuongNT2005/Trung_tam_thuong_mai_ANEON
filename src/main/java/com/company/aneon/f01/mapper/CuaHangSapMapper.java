@@ -2,6 +2,7 @@ package com.company.aneon.f01.mapper;
 
 import java.math.BigDecimal;
 
+import com.company.aneon.f01.constant.StatusTransition;
 import com.company.aneon.f01.dto.StoreDtos;
 import com.company.aneon.f01.entity.CuaHangSap;
 
@@ -57,7 +58,7 @@ public class CuaHangSapMapper {
                 store.getCategory() == null ? null : store.getCategory().getName(),
                 store.getLocation() == null ? null : store.getLocation().getId(),
                 store.getStatus(), store.getOperatingHours(), store.getDescription(),
-                store.isPublicVisible(), store.getVersion());
+                store.isPublicVisible(), store.getVersion(), StatusTransition.allowedTargets(store.getStatus()));
     }
     /**
      * Người code: Minh

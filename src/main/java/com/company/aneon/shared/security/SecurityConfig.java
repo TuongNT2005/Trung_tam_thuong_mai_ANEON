@@ -82,6 +82,8 @@ public class SecurityConfig {
                         }))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/f10/promotions-events/search").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/public/stores", "/api/v1/public/events/{id}").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/public/events/{id}/check-in-preview").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/shared/public-accounts").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                         .requestMatchers("/api/**").authenticated()

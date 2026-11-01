@@ -1,6 +1,3 @@
-"use client";
-
-
 /**
  * ==============================================================================
  * Người code: Khải
@@ -9,11 +6,10 @@
  * Phiên bản: Version 1
  * ==============================================================================
  */
-import { useState } from "react";
+import Link from "next/link";
 import { NAV } from "@/lib/site";
 import { Reveal } from "./motion";
 
-/** Footer: wordmark lớn, cột liên kết, đăng ký tin (có trạng thái thành công). */
 /**
  * Người code: Khải
  * Ngày code: 29/10/2026
@@ -21,21 +17,6 @@ import { Reveal } from "./motion";
  * Phiên bản: Version 1
  */
 export default function Footer() {
-  const [email, setEmail] = useState("");
-  const [done, setDone] = useState(false);
-
-  /**
-   * Người code: Khải
-   * Ngày code: 29/10/2026
-   * Chức năng: Hàm xử lý nghiệp vụ submit
-   * Phiên bản: Version 1
-   */
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
-      setDone(true);
-    }
-  };
 
   return (
     <footer className="relative overflow-hidden bg-plum pt-20 text-cream md:pt-28">
@@ -44,44 +25,11 @@ export default function Footer() {
       <div className="mx-auto max-w-7xl px-5 md:px-10">
         <div className="grid gap-14 lg:grid-cols-12">
           <Reveal className="lg:col-span-5">
-            <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-cream/60">
-              Bản tin AEON MALL
-            </p>
-            <h2 className="mt-5 font-display text-3xl font-light leading-[1.12] sm:text-4xl">
-              Ưu đãi và sự kiện,
-              <br />
-              gửi <em className="font-display italic text-gold">trước một tuần.</em>
-            </h2>
-            {done ? (
-              <p className="mt-7 rounded-full border border-gold/40 px-5 py-4 text-sm text-gold" role="status">
-                Đã ghi nhận — hẹn gặp bạn trong bản tin kế tiếp.
-              </p>
-            ) : (
-              <form onSubmit={submit} className="mt-7 flex max-w-md gap-2" noValidate={false}>
-                <label htmlFor="footer-email" className="sr-only">
-                  Email của bạn
-                </label>
-                <input
-                  id="footer-email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="email@cua-ban.vn"
-                  className="h-[52px] flex-1 rounded-full border border-cream/20 bg-cream/5 px-5 text-sm text-cream placeholder:text-cream/40 outline-none transition-colors focus:border-gold"
-                />
-                <button
-                  type="submit"
-                  className="btn-slide h-[52px] shrink-0 rounded-full bg-cream px-6 text-sm font-semibold text-ink hover:text-cream"
-                  style={{ ["--slide-color" as string]: "#e5007e" }}
-                >
-                  Đăng ký
-                </button>
-              </form>
-            )}
-            <p className="mt-4 text-xs text-cream/45">
-              Mỗi tuần tối đa một email. Hủy đăng ký bất cứ lúc nào.
-            </p>
+            <h2 className="font-display text-3xl font-light leading-[1.12] sm:text-4xl">Sự kiện và ưu đãi</h2>
+            <div className="mt-5 flex flex-wrap gap-4 text-sm font-semibold">
+              <Link href="/kham-pha" className="underline underline-offset-4 hover:text-gold">Xem lịch và ưu đãi</Link>
+              <Link href="/voucher-cua-toi" className="underline underline-offset-4 hover:text-gold">Voucher của tôi</Link>
+            </div>
           </Reveal>
 
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:col-span-7">
