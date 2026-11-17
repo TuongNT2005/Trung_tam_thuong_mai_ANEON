@@ -8,6 +8,7 @@ import com.company.aneon.f10.constant.VoucherIssueStatus;
 import com.company.aneon.f10.entity.PhieuUuDaiKhachHang;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -25,4 +26,7 @@ public interface PhieuUuDaiKhachHangRepository extends JpaRepository<PhieuUuDaiK
     Optional<PhieuUuDaiKhachHang> findByVoucherIdAndIssueReference(UUID voucherId, String issueReference);
 
     List<PhieuUuDaiKhachHang> findByCustomerIdAndStatus(UUID customerId, VoucherIssueStatus status);
+
+    @EntityGraph(attributePaths = "voucher")
+    List<PhieuUuDaiKhachHang> findByCustomerIdAndArchivedAtIsNullOrderByIssuedAtDesc(UUID customerId);
 }

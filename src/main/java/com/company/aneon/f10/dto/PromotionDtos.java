@@ -107,6 +107,10 @@ public final class PromotionDtos {
                                           String issueReference, boolean duplicate) {
     }
 
+    public record WalletVoucher(UUID id, String code, String name, VoucherDiscountType discountType, BigDecimal value,
+                                BigDecimal maximumDiscount, BigDecimal minimumInvoiceAmount, Instant validFrom,
+                                Instant expiresAt, String status, List<String> storeCodes) {}
+
     public record RedeemVoucherRequest(@NotNull UUID invoiceId,
                                        @Size(max = 120) String idempotencyKey) {
     }

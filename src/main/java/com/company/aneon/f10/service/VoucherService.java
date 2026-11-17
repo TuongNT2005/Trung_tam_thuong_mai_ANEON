@@ -1,5 +1,6 @@
 package com.company.aneon.f10.service;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.company.aneon.f10.dto.PromotionDtos;
@@ -14,4 +15,6 @@ public interface VoucherService {
 
     /** Dung voucher (ISSUED -> USED). */
     PromotionDtos.RedeemResult redeem(UUID instanceId, PromotionDtos.RedeemVoucherRequest request);
+
+    List<PromotionDtos.WalletVoucher> wallet();
 }
