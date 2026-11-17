@@ -51,7 +51,9 @@ Mở `http://localhost:3000`. Next.js mặc định chuyển `/aneon-api/*` đ�
 | --- | --- |
 | `/` | Danh bạ gian hàng và nội dung công khai |
 | `/kham-pha` | Tìm sự kiện và ưu đãi |
+| `/kham-pha/su-kien/[id]` | Lịch và địa điểm sự kiện |
 | `/check-in` | Check-in qua QR tại sự kiện |
+| `/voucher-cua-toi` | Voucher của khách |
 | `/quan-ly` | Mặt bằng, cửa hàng, sự kiện và khuyến mãi |
 
 Để build frontend, chạy `npm run build` trong thư mục `frontend`. Để đóng gói backend, chạy `.\mvnw.cmd package` từ thư mục gốc.
