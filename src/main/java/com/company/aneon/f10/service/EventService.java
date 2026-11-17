@@ -23,6 +23,8 @@ public interface EventService {
     /** F10UC01.5: duyet/tu choi de xuat. */
     EventDtos.EventDetail approve(UUID eventId, EventDtos.ApproveEventRequest request);
 
+    EventDtos.EventDetail publish(UUID eventId, long version);
+
     /** F10UC01.2: them loat hoat dong, kiem tra trung vi tri/khung gio. */
     EventDtos.ActivityCreatedResult addActivities(UUID eventId, EventDtos.CreateActivitiesRequest request);
 
