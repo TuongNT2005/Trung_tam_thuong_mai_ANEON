@@ -2,6 +2,7 @@ package com.company.aneon.f01.mapper;
 
 import java.math.BigDecimal;
 
+import com.company.aneon.f01.constant.StatusTransition;
 import com.company.aneon.f01.dto.PremiseDtos;
 import com.company.aneon.f01.entity.MatBang;
 
@@ -33,7 +34,7 @@ public class MatBangMapper {
                 premise.getZone().getFloor().getBuilding().getName(),
                 premise.getTotalArea(), allocatedArea, premise.getType(), premise.getStatus(),
                 premise.getLocation() == null ? null : premise.getLocation().getId(),
-                premise.getDescription(), premise.getVersion());
+                premise.getDescription(), premise.getVersion(), StatusTransition.allowedTargets(premise.getStatus()));
     }
 
     public Snapshot toSnapshot(MatBang premise) {
