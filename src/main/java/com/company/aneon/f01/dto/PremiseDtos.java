@@ -1,6 +1,7 @@
 package com.company.aneon.f01.dto;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import com.company.aneon.f01.constant.PremiseStatus;
@@ -66,6 +67,6 @@ public final class PremiseDtos {
     public record PremiseDetail(UUID id, String code, String name, UUID zoneId, String zoneName,
                                 String floorName, String buildingName, BigDecimal totalArea,
                                 BigDecimal allocatedArea, PremiseType type, PremiseStatus status,
-                                UUID locationId, String description, long version) {
+                                UUID locationId, String description, long version, List<String> allowedStatuses) {
     }
 }
