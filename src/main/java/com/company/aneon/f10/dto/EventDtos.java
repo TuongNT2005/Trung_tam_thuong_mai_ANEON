@@ -90,6 +90,10 @@ public final class EventDtos {
                                  @Size(max = 200) String scanningDevice) {
     }
 
+    public record CheckInPreviewRequest(@NotBlank @Size(max = 200) String qrToken) {}
+
+    public record CheckInContext(String name, Instant startAt, Instant endAt, String state, String location) {}
+
     public record EventSummary(UUID id, String code, String name, EventStatus status,
                                BigDecimal estimatedBudget, UUID proposedBy, Instant createdAt) {
     }

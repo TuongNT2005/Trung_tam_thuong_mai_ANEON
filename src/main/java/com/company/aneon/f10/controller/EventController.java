@@ -7,6 +7,8 @@ import com.company.aneon.f10.constant.EventStatus;
 import com.company.aneon.f10.dto.EventDtos;
 import com.company.aneon.f10.service.EventService;
 import com.company.aneon.f10.service.QrCodeService;
+import com.company.aneon.shared.error.ApiException;
+import com.company.aneon.shared.reference.CustomerDirectory;
 import com.company.aneon.shared.security.RolePermissions;
 import com.company.aneon.shared.web.ApiResponse;
 import com.company.aneon.shared.web.PageParams;
@@ -37,12 +39,14 @@ public class EventController {
     private final EventService eventService;
     private final QrCodeService qrCodeService;
     private final com.company.aneon.f10.service.EventReportService eventReportService;
+    private final CustomerDirectory customers;
 
     public EventController(EventService eventService, QrCodeService qrCodeService,
-                           com.company.aneon.f10.service.EventReportService eventReportService) {
+                           com.company.aneon.f10.service.EventReportService eventReportService, CustomerDirectory customers) {
         this.eventService = eventService;
         this.qrCodeService = qrCodeService;
         this.eventReportService = eventReportService;
+        this.customers = customers;
     }
 
     @PostMapping("/proposals")
@@ -82,6 +86,12 @@ public class EventController {
         return ApiResponse.ok("Xu ly duyet su kien thanh cong", eventService.approve(id, request));
     }
 
+    @PutMapping("/{id}/publication")
+    @PreAuthorize("hasAuthority('" + RolePermissions.F10_EVENT_PROPOSE + "')")
+    public ApiResponse<EventDtos.EventDetail> publish(@PathVariable UUID id, @RequestParam long version) {
+        return ApiResponse.ok("Đã công bố sự kiện", eventService.publish(id, version));
+    }
+
     @PostMapping("/{id}/activities")
     @PreAuthorize("hasAuthority('" + RolePermissions.F10_EVENT_SCHEDULE + "')")
     public ResponseEntity<ApiResponse<EventDtos.ActivityCreatedResult>> addActivities(
@@ -115,6 +125,22 @@ public class EventController {
     @PreAuthorize("hasAuthority('" + RolePermissions.F10_EVENT_READ + "') or hasAuthority('" + RolePermissions.F10_CHECKIN_ASSIST + "') or hasAuthority('" + RolePermissions.F10_EVENT_QR + "')")
     public ApiResponse<EventDtos.QrCodeDto> getActiveQr(@PathVariable UUID id) {
         return ApiResponse.ok("Lay ma QR check-in thanh cong", qrCodeService.getActiveQr(id).orElse(null));
+    }
+
+    @GetMapping("/{id}/check-in-status")
+    @PreAuthorize("hasAuthority('" + RolePermissions.F10_CHECKIN_ASSIST + "')")
+    public ApiResponse<EventDtos.CheckInContext> checkInStatus(@PathVariable UUID id) {
+        return ApiResponse.ok("Trạng thái check-in", qrCodeService.status(id));
+    }
+
+    @PostMapping("/{id}/check-in-customers")
+    @PreAuthorize("hasAuthority('" + RolePermissions.F10_CHECKIN_ASSIST + "')")
+    public ApiResponse<CustomerDirectory.Results> findCheckInCustomer(@PathVariable UUID id,
+            @Valid @RequestBody CustomerDirectory.Search search) {
+        if (!"READY".equals(qrCodeService.status(id).state())) {
+            throw ApiException.conflict("Sự kiện chưa nhận check-in. Hãy kiểm tra lại trạng thái sự kiện.");
+        }
+        return ApiResponse.ok("Kết quả tìm khách", customers.search(search));
     }
 
     @PostMapping("/{id}/qr-code")

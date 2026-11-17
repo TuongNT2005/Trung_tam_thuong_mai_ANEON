@@ -13,6 +13,10 @@ public interface QrCodeService {
     /** Lay ma QR check-in dang active cua su kien (ho tro check-in tu dong). */
     Optional<EventDtos.QrCodeDto> getActiveQr(UUID eventId);
 
+    EventDtos.CheckInContext status(UUID eventId);
+
+    EventDtos.CheckInContext preview(UUID eventId, String qrToken);
+
     /** Check-in qua token QR (bo tro F10UC01.3/01.4). */
     EventDtos.CheckInResult checkIn(UUID eventId, EventDtos.CheckInRequest request);
 }
