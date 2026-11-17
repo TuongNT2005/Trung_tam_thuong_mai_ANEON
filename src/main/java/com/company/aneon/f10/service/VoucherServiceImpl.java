@@ -32,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
  * F10UC02.2/02.3 bo tro phat/dung voucher. Khoa dong dong voucher +
  * UPDATE co dieu kien: hai request khong vuot tong/per-customer limit;
  * issuedLimit = 0 la khong gioi han (rule f10, D0006).
+ * Người phụ trách code: Tùng | Ngày cập nhật local: 2026-11-17 | Phiên bản: v1.1.
+ * Chức năng: phát voucher, đối chiếu hóa đơn và ghi nhận sử dụng phiếu.
  */
 @Service
 public class VoucherServiceImpl implements VoucherService {
@@ -63,6 +65,34 @@ public class VoucherServiceImpl implements VoucherService {
         this.f01LookupPort = f01LookupPort;
         this.accessScopePort = accessScopePort;
         this.clock = clock;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PromotionDtos.WalletVoucher> wallet() {
+        UUID customerId = personLookupPort.customerLinkOf(requireActor())
+                .orElseThrow(() -> ApiException.forbidden("Tài khoản chưa liên kết với hồ sơ khách mua sắm."));
+        Instant now = clock.instant();
+        return instanceRepository.findByCustomerIdAndArchivedAtIsNullOrderByIssuedAtDesc(customerId).stream()
+                .map(instance -> {
+                    PhieuUuDai voucher = instance.getVoucher();
+                    String status = switch (instance.getStatus()) {
+                        case ISSUED -> {
+                            if (!voucher.isActive() || voucher.getArchivedAt() != null) yield "REVOKED";
+                            if (voucher.getExpiresAt() != null && now.isAfter(voucher.getExpiresAt())) yield "EXPIRED";
+                            if (voucher.getValidFrom() != null && now.isBefore(voucher.getValidFrom())) yield "UPCOMING";
+                            yield "AVAILABLE";
+                        }
+                        default -> instance.getStatus().name();
+                    };
+                    List<String> storeCodes = voucherStoreRepository.findByVoucherId(voucher.getId()).stream()
+                            .map(link -> f01LookupPort.findStore(link.getStoreId()).map(store -> store.code())
+                                    .orElse("Gian hàng đã ngừng hoạt động"))
+                            .distinct().sorted().toList();
+                    return new PromotionDtos.WalletVoucher(instance.getId(), voucher.getCode(), voucher.getName(),
+                            voucher.getDiscountType(), voucher.getValue(), voucher.getMaximumDiscount(),
+                            voucher.getMinimumInvoiceAmount(), voucher.getValidFrom(), voucher.getExpiresAt(), status, storeCodes);
+                }).toList();
     }
 
     @Override

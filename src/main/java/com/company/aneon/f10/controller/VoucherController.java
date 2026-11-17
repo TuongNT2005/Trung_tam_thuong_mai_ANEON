@@ -1,5 +1,6 @@
 package com.company.aneon.f10.controller;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.company.aneon.f10.dto.PromotionDtos;
@@ -9,6 +10,7 @@ import com.company.aneon.shared.web.ApiResponse;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,6 +30,12 @@ public class VoucherController {
 
     public VoucherController(VoucherService voucherService) {
         this.voucherService = voucherService;
+    }
+
+    @GetMapping("/voucher-instances/mine")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public ApiResponse<List<PromotionDtos.WalletVoucher>> wallet() {
+        return ApiResponse.ok("Voucher của tôi", voucherService.wallet());
     }
 
     @PostMapping("/vouchers")
