@@ -16,7 +16,7 @@ export default async function DiscoveryPage({ searchParams }: { searchParams: Pr
           <div className="mx-auto max-w-7xl px-5 py-12 md:px-10 md:py-20">
             <h1 className="font-display text-5xl leading-tight md:text-7xl">Sự kiện & <em className="text-[#ffaad5]">ưu đãi</em></h1>
             <p className="mt-5 max-w-xl text-cream/85">Tra cứu lịch sự kiện và chương trình khuyến mãi tại AEON MALL.</p>
-            <Link href="/check-in" className="mt-6 inline-block font-semibold text-[#ffaad5] underline underline-offset-4">Check-in bằng mã sự kiện</Link>
+            <Link href="/check-in" className="mt-6 inline-block font-semibold text-[#ffaad5] underline underline-offset-4">Hướng dẫn check-in tại sự kiện</Link>
           </div>
         </div>
         <section aria-label="Tra cứu sự kiện và ưu đãi" className="mx-auto max-w-7xl px-5 py-8 md:px-10 md:py-12">
