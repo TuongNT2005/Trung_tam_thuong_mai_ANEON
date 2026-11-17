@@ -107,6 +107,21 @@ body {
   transform: translateY(0);
 }
 
+#check-in-print {
+  display: none;
+}
+
+@media print {
+  body:has(> #check-in-print) > :not(#check-in-print) {
+    display: none !important;
+  }
+
+  #check-in-print {
+    display: block;
+    break-inside: avoid;
+  }
+}
+
 /* Chuyển động giảm khi người dùng yêu cầu */
 @media (prefers-reduced-motion: reduce) {
   html {

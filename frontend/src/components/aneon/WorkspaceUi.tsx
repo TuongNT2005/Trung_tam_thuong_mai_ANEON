@@ -36,7 +36,7 @@ export function Details({ data, columns }: { data: Row; columns: Column[] }) {
   </dl>;
 }
 
-export function useResource<T>(path: string | undefined, identity: Identity, revision = 0) {
+export function useResource<T>(path: string | undefined, identity: Identity | undefined, revision = 0) {
   const [result, setResult] = useState<{ path: string; revision: number; data?: T; error?: string }>();
   useEffect(() => {
     if (!path) return;

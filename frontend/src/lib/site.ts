@@ -49,49 +49,6 @@ export const MARQUEE_WORDS = [
   "Khám phá",
 ];
 
-export type Store = {
-  id: string;
-  name: string;
-  category: string;
-  floor: string;
-  note: string;
-};
-
-export const STORE_CATEGORIES = [
-  "Tất cả",
-  "Thời trang",
-  "Ẩm thực",
-  "Làm đẹp",
-  "Giải trí",
-  "Siêu thị",
-  "Công nghệ",
-  "Trẻ em",
-  "Thể thao",
-] as const;
-
-export const STORE_FLOORS = ["Tất cả", "B1", "T1", "T2", "T3"] as const;
-
-export const STORES: Store[] = [
-  { id: "st-01", name: "AEON Supermarket", category: "Siêu thị", floor: "B1", note: "Siêu thị nhật bản phong cách nhật bản, thực phẩm tươi mỗi ngày." },
-  { id: "st-02", name: "Atelier Rivière", category: "Thời trang", floor: "T1", note: "Boutique cao cấp theo mùa, chọn lọc vải tự nhiên." },
-  { id: "st-03", name: "Maison de Sable", category: "Thời trang", floor: "T1", note: "Phong cách tối giản Paris, chất liệu len và lụa." },
-  { id: "st-04", name: "Kōan Beauty House", category: "Làm đẹp", floor: "T2", note: "Skincare và spa nghỉ dưỡng theo phong cách Kyoto." },
-  { id: "st-05", name: "Signature Noodle Bar", category: "Ẩm thực", floor: "T2", note: "Mì ramen đậm vị, nước dùng hầm xương 12 tiếng." },
-  { id: "st-06", name: "The Curiosity Lab", category: "Trẻ em", floor: "T3", note: "Vườn chơi tương tác và workshop sáng tạo cho trẻ." },
-  { id: "st-07", name: "Neon Play Arena", category: "Giải trí", floor: "T3", note: "Khu trò chơi điện tử và VR cho cả gia đình." },
-  { id: "st-08", name: "Sable & Stone", category: "Thời trang", floor: "T2", note: "Trang sức thủ công và đá quý tuyển chọn." },
-  { id: "st-09", name: "Ciné Cité Plaza", category: "Giải trí", floor: "T3", note: "Rạp chiếu phim màn hình rộng, âm thanh Dolby." },
-  { id: "st-10", name: "Orchid & Fern", category: "Làm đẹp", floor: "T1", note: "Hoa tươi, nến thơm và quà lưu niệm sống xanh." },
-  { id: "st-11", name: "Pixel District", category: "Công nghệ", floor: "T2", note: "Điện tử, máy ảnh và phụ kiện chính hãng." },
-  { id: "st-12", name: "Bếp Nhà Mai", category: "Ẩm thực", floor: "T2", note: "Cơm nhà Nam Bộ, nấu bằng gạo mới mỗi ngày." },
-  { id: "st-13", name: "Aurora Athletica", category: "Thể thao", floor: "T1", note: "Trang phục chạy bộ và yoga, tư vấn size tại chỗ." },
-  { id: "st-14", name: "Little Lanterns", category: "Trẻ em", floor: "T1", note: "Quần áo và đồ chơi gỗ an toàn cho bé 0–8 tuổi." },
-  { id: "st-15", name: "Golden Crust Bakery", category: "Ẩm thực", floor: "B1", note: "Bếp bánh mì Âu, ra lò mỗi 30 phút." },
-  { id: "st-16", name: "Terracotta Living", category: "Thời trang", floor: "T2", note: "Gia dụng gốm và nội thất mộc mạc Địa Trung Hải." },
-  { id: "st-17", name: "Café Solstice", category: "Ẩm thực", floor: "T1", note: "Cà phê rang mộc, bản nhạc vinyl mỗi chiều." },
-  { id: "st-18", name: "Harbour Books", category: "Công nghệ", floor: "T3", note: "Nhà sách và góc đọc cả gia đình nhìn ra sân vườn." },
-];
-
 export const SHOPPING_TILES = [
   { image: IMAGES.shoppingA, label: "Thời trang cao cấp", tag: "Tầng 1 — 40+ thương hiệu" },
   { image: IMAGES.shoppingB, label: "Boutique & concept store", tag: "Tầng 2 — chọn lọc mỗi mùa" },
