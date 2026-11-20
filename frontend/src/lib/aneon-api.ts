@@ -84,7 +84,7 @@ type Envelope<T> = {
 };
 
 export const UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
-export const localIdentityEnabled = process.env.NEXT_PUBLIC_ANEON_LOCAL_IDENTITY === "true";
+export const localIdentityEnabled = process.env.NEXT_PUBLIC_ANEON_LOCAL_IDENTITY !== "false";
 
 /**
  * Người code: Tường
